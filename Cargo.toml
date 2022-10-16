@@ -1,0 +1,20 @@
+[package]
+name = "coquinha-os"
+version = "0.1.0"
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+crate-type=["staticlib"]
+
+[dependencies]
+volatile = "0.2.6" # Volatile allows finer grain control of the compiler
+spin = "0.5.2"
+
+[dependencies.lazy_static]
+version = "1.0"
+features = ["spin_no_std"]
+
+[profile.dev]
+panic = "abort"

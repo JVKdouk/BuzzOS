@@ -1,0 +1,55 @@
+[env]
+BOOTLOADER_FILES = """
+src/bootloader/linker.ld
+build/multiboot.o
+build/boot.o
+build/long.o
+build/kernel.a
+"""
+
+# Ensure everything is in place and clear build folder
+[tasks.clean]
+clear = true
+script = [
+    "mkdir -p build",
+    "rm -rf ./build/*",
+    "mkdir -p build/boot",
+    "mkdir -p build/boot/grub",
+]
+
+# Ensure everything is in place and clear build folder
+[tasks.kernel]
+clear = true
+script = [
+    "cargo build --target x86_64-target.json",
+    "cp target/x86_64-target/debug/libcoquinha_os.a build/kernel.a"
+]
+
+# Build bootloader asm files
+[tasks.bootloader]
+dependencies = ["clean", "kernel"]
+script = [
+    "nasm -f elf64 src/bootloader/long.asm -o build/long.o",
+    "nasm -f elf64 src/bootloader/boot.asm -o build/boot.o",
+    "nasm -f elf64 src/bootloader/multiboot.asm -o build/multiboot.o",
+    "ld -n -o build/boot/kernel.bin -T ${BOOTLOADER_FILES}",
+    # "objdump -S build/boot/kernel.bin > build/kernel.asm",
+    "cp  src/bootloader/grub.cfg build/boot/grub/grub.cfg",
+    "grub-mkrescue -d /usr/lib/grub/i386-pc -o build/os.iso build"
+]
+
+[tasks.debug]
+dependencies = ["bootloader"]
+script = [
+    "qemu-system-x86_64 -cdrom build/os.iso"
+]
+
+[tasks.run]
+script = [
+    "qemu-system-x86_64 -cdrom build/os.iso"
+]
+
+[tasks.gdb]
+script = [
+    "qemu-system-x86_64 -cdrom build/os.iso -S -s"
+]

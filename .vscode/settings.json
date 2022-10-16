@@ -1,0 +1,8 @@
+{
+  "files.associations": {
+    "memlayout.h": "c",
+    "elf.h": "c",
+    "x86.h": "c",
+    "types.h": "c"
+  }
+}
