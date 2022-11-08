@@ -44,6 +44,11 @@ script = [
     "grub-mkrescue -d /usr/lib/grub/i386-pc -o build/os.iso build"
 ]
 
+[tasks.post-build-clean]
+script = [
+    "rm -rf ./target"
+]
+
 [tasks.default]
 alias = "debug"
 

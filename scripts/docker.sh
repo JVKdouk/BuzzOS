@@ -42,10 +42,10 @@ echo $ROOT_DIR
 
 if [[ $PULL == true ]]; then
     echo "Pulling latest image from DockerHub"
-    docker pull jackwolfard/cs3210:latest
+    docker pull jvkdouk/buzz-os:latest
 elif [[ $ATTACH == true ]]; then
     echo "Attaching to container"
-    docker exec -it buzz bash 
+    docker exec -it buzz ash 
 else
     echo "Starting Buzz OS Container"
     docker run --rm -it --name="buzz" -v "${ROOT_DIR}/":/buzz -w="/buzz" buzz-os
