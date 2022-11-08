@@ -11,15 +11,6 @@ long_mode_start:
     mov es, ax ; Extra Segment Register
     mov fs, ax ; Extra Segment Register
     mov gs, ax ; Extra Segment Register
-    
-    ; Disable blinking VGA Text Mode Cursor
-	; mov dx, 0x3D4 ; VGA Text Mode Register Address
-	; mov al, 0xA	  ; Cursor Start Register
-	; out dx, al
- 
-	; inc dx        ; Data Register in Text Mode
-	; mov al, 0x20	; Disable Cursor
-	; out dx, al
 
     ; Finally, time to get Rusty
     extern _start

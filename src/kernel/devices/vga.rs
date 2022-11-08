@@ -1,27 +1,9 @@
-use crate::kernel::x86;
-use volatile::Volatile;
+use crate::kernel::x86::helpers::outb;
 use core::fmt;
+use core::fmt::Write;
 use lazy_static::lazy_static;
 use spin::Mutex;
-use core::fmt::Write;
-
-/* ************ Macros ************ */
-
-#[macro_export]
-macro_rules! print {
-    ($($arg:tt)*) => ($crate::kernel::vga::_print(format_args!($($arg)*)));
-}
-
-#[macro_export]
-macro_rules! clear {
-    () => ($crate::kernel::vga::_clear());
-}
-
-#[macro_export]
-macro_rules! println {
-    () => ($crate::print!("\n"));
-    ($($arg:tt)*) => ($crate::print!("{}\n", format_args!($($arg)*)));
-}
+use volatile::Volatile;
 
 /* ************ Declarations ************ */
 
@@ -71,7 +53,7 @@ struct Buffer {
 
 pub struct VGAText {
     position: u32,
-    color: VGAColor, // Current color of the VGA Writer
+    color: VGAColor,             // Current color of the VGA Writer
     buffer: &'static mut Buffer, // ' tells Rust this reference is valid forever (Valid for VGA)
 }
 
@@ -94,13 +76,15 @@ impl fmt::Write for VGAText {
 }
 
 impl VGAText {
-    pub unsafe fn init(&mut self, fg: Color, bg: Color) {
+    pub fn init(&mut self, fg: Color, bg: Color) {
         // Disable blinking pointer
-        x86::outb(0x3D4, 0x0A);
-        x86::outb(0x3D5, 0x20);
+        outb(0x3D4, 0x0A);
+        outb(0x3D5, 0x20);
 
         // Init foreground and background color
-        self.set_color(fg, bg);
+        unsafe {
+            self.set_color(fg, bg);
+        }
     }
 
     // Set foreground and background color
@@ -108,7 +92,7 @@ impl VGAText {
         let color: VGAColor = VGAColor::new(fg, bg);
         self.color = color;
     }
-    
+
     // Write a single char to the display. In fact, writes 16 bits (half word) to the
     // VGA buffer. If character is a new line (\n), invokes new line handler
     pub fn write_byte(&mut self, byte: u8) {
@@ -146,7 +130,10 @@ impl VGAText {
     // Clear VGA buffer by setting every char back to 0
     pub fn clear(&mut self) -> fmt::Result {
         for i in 0..(VGA_CHAR_LIMIT) {
-            self.buffer.chars[i as usize].write(VGAChar { byte: 0x0, color: self.color });
+            self.buffer.chars[i as usize].write(VGAChar {
+                byte: 0x0,
+                color: self.color,
+            });
         }
 
         self.position = 0;
@@ -158,7 +145,7 @@ impl VGAText {
     // scroll down.
     fn scroll(&mut self, offset: i32) -> fmt::Result {
         let index = VGA_COL_LIMIT as i32 * offset;
-        
+
         // Update the position of every character on the screen
         for i in 0..(self.buffer.chars.len()) {
             let calculated_offset = (i as i32) + index;
@@ -173,7 +160,8 @@ impl VGAText {
                 continue;
             } else {
                 let move_vga: VGAChar = self.buffer.chars[i].read();
-                self.buffer.chars[calculated_offset as usize].update(|current| current.byte = move_vga.byte);
+                self.buffer.chars[calculated_offset as usize]
+                    .update(|current| current.byte = move_vga.byte);
             }
 
             // If this is the case, nothing after the position pointer matters. Zero it
@@ -195,7 +183,7 @@ impl VGAText {
     // New line handler, calculates next line and jump to it
     fn new_line(&mut self) {
         let next_line: u32 = (self.position as u32 / VGA_COL_LIMIT) + 1;
-        
+
         // self.buffer.chars[self.position as usize].write(VGAChar { byte: '\n' as u8, color: self.color });
         self.position = (next_line * VGA_COL_LIMIT) as u32;
     }
@@ -209,17 +197,6 @@ lazy_static! {
     pub static ref TEXT: Mutex<VGAText> = Mutex::new(VGAText {
         position: 0,
         color: VGAColor::new(Color::White, Color::Black),
-        buffer: unsafe { &mut *(0xb8000 as *mut Buffer) },
+        buffer: unsafe { &mut *(0xB8000 as *mut Buffer) },
     });
-}
-
-// Writer print helper. Simple procedure of locking Writer, and write print!() macro
-// arguments
-pub fn _print(args: fmt::Arguments) {
-    TEXT.lock().write_fmt(args).unwrap();
-}
-
-// Writer clear buffer helper. Allows the usage of the macro clear!()
-pub fn _clear() {
-    TEXT.lock().clear().unwrap();
 }

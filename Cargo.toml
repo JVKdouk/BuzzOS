@@ -1,5 +1,5 @@
 [package]
-name = "coquinha-os"
+name = "buzz-os"
 version = "0.1.0"
 edition = "2018"
 
@@ -11,6 +11,9 @@ crate-type=["staticlib"]
 [dependencies]
 volatile = "0.2.6" # Volatile allows finer grain control of the compiler
 spin = "0.5.2"
+multiboot2 = "0.1.0"
+bitflags = "1.0.4"
+rustversion = "1.0.5"
 
 [dependencies.lazy_static]
 version = "1.0"
@@ -18,3 +21,7 @@ features = ["spin_no_std"]
 
 [profile.dev]
 panic = "abort"
+
+[features]
+vga=[]
+console=[]

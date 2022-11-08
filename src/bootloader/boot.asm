@@ -12,6 +12,9 @@ start:
     ; Initialize stack pointer to a point we know (stack_top)
     mov esp, stack_top
 
+    ; Save memory layout address
+    mov edi, ebx       ; EDI is the first argument to be passed to a function (Linux calling convention)
+
     ; Quick checks before boot
     call check_multiboot ; This OS currently can only be booted using Multiboot (GRUB)
     call check_cpuid     ; Check if CPUID is supported, this provides access to CPU information
@@ -34,7 +37,7 @@ start:
     lgdt [gdt64.pointer]
 
     ; GDT has not yet reloaded our CS register. We must do a long jump to reload it.
-    ; gdt64.code is the new CS (Code Selector) value, while long_mode_start is an external
+    ; gdt64.code is the new CS (Code Segment) value, while long_mode_start is an external
     ; address we will jump to. Notice the syntax, CS:Address. This will set the address as an
     ; offset of CS.
     jmp gdt64.code:long_mode_start
@@ -140,6 +143,9 @@ set_up_page_tables:
 
     ret
 
+; Kata OS
+; Joao Victor Cardoso Kdouk
+
 ; With page table, we are now ready to enable long mode in our process. This involves setting
 ; CR3 to the address of PML4 (base of the process's page-mapped level 4).
 enable_paging:
@@ -215,5 +221,5 @@ pd_table:
 ; Stack top to bottom. If stack goes beyond the 64 allocated bytes, we may have corruption of the page
 ; tables.
 stack_bottom:
-    resb 64
+    resb 16384 ; 16 kB of Stack
 stack_top:

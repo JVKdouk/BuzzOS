@@ -2,20 +2,16 @@
 #![no_main]
 #![allow(unused)]
 #![feature(mixed_integer_ops)]
-
+#![feature(abi_x86_interrupt)]
 #[macro_use]
+
 mod kernel {
+    pub mod devices;
+    pub mod interrupts;
+    pub mod memory;
     pub mod misc;
-
-    pub mod vga;
-    pub use vga::TEXT as vga_writer;
-
-    mod x86;
-    pub use x86::outb;
-
-    pub mod vm;
-
-    pub mod defs;
+    pub mod threading;
+    pub mod x86;
 }
 
 // Interface definition of panic in Rust. Core represents the core library
@@ -25,17 +21,17 @@ use core::panic::PanicInfo;
 // _start is the default entry point for most systems. Function is diverging as the Kernel should
 // never return
 #[no_mangle]
-pub unsafe extern "C" fn _start() -> ! {
-    // Setup VGA Text Mode
-    kernel::vga_writer.lock().init(kernel::vga::Color::White, kernel::vga::Color::Black);
-    kernel::misc::logo();
-    println!("[INIT] VGA Text Mode Enabled");
-    
-    // Setup Paging System and Virtual Memory
-    println!("[INIT] Mapping Memory");
-    kernel::vm::setup_vm();
+pub unsafe extern "C" fn _start(mem_layout_pointer: usize) -> ! {
+    // Initialize debugging method (VGA or Console)
+    kernel::devices::debug::debug_init();
+    kernel::misc::logo::print_logo();
 
-    let a = 0;
+    // Setup Paging
+    kernel::memory::vm::setup_vm(mem_layout_pointer);
+    kernel::interrupts::idt::setup_idt();
+
+    // kernel::x86::helpers::int3();
+
     loop {}
 }
 

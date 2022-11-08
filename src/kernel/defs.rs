@@ -1,3 +1,0 @@
-pub const MEMORY_TOP: u64 = 0xFFFFFFFFFFFFFFFF;
-pub const MEMORY_BOTTOM: u64 = 0x0;
-pub const MEMORY_PAGE_SIZE: u64 = 4096;
