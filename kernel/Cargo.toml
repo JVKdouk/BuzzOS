@@ -1,0 +1,25 @@
+[package]
+name = "buzz-os-kernel"
+version = "0.1.0"
+edition = "2018"
+
+[dependencies]
+volatile = "0.2.6" # Volatile allows finer grain control of the compiler
+spin = "0.5.2"
+multiboot2 = "0.1.0"
+bitflags = "1.0.4"
+rustversion = "1.0.5"
+
+[dependencies.lazy_static]
+version = "1.0"
+features = ["spin_no_std"]
+
+[lib]
+crate-type=["staticlib"]
+
+[profile.dev]
+panic = "abort"
+
+[features]
+vga=[]
+console=[]

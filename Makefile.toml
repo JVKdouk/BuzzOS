@@ -4,14 +4,18 @@
 # Virtual Memory + Copy-On-Write
 
 [env]
-BOOTLOADER_FILES = """
-src/bootloader/linker.ld
-build/multiboot.o
-build/boot.o
+KERNEL_FILES = """
+kernel/src/boot/linker.ld
+build/entry.o
 build/long.o
 build/kernel.a
 """
-DEBUG_MODE = "console"
+BOOTLOADER_FILES = """
+bootloader/src/linker.ld
+build/boot.o
+build/bootloader.a
+"""
+DEBUG_MODE = "vga"
 
 # Ensure everything is in place and clear build folder
 [tasks.clean]
@@ -19,46 +23,42 @@ clear = true
 script = [
     "mkdir -p build",
     "rm -rf ./build/*",
-    "mkdir -p build/boot",
-    "mkdir -p build/boot/grub",
-]
-
-# Build Kernel and move it to build folder
-[tasks.kernel]
-clear = true
-script = [
-    "cargo build --target x86_64-target.json --features ${DEBUG_MODE}",
-    "cp target/x86_64-target/debug/libbuzz_os.a build/kernel.a"
 ]
 
 # Build bootloader asm files
-[tasks.bootloader]
-dependencies = ["clean", "kernel"]
+[tasks.build_bootloader]
+dependencies = ["clean"]
+workspace = false
 script = [
-    "nasm -f elf64 src/bootloader/long.asm -o build/long.o",
-    "nasm -f elf64 src/bootloader/boot.asm -o build/boot.o",
-    "nasm -f elf64 src/bootloader/multiboot.asm -o build/multiboot.o",
-    "ld -n -o build/boot/kernel.bin -T ${BOOTLOADER_FILES}",
-    # "objdump -S build/boot/kernel.bin > build/kernel.asm",
-    "cp src/bootloader/grub.cfg build/boot/grub/grub.cfg",
-    "grub-mkrescue -d /usr/lib/grub/i386-pc -o build/os.iso build"
+    "export KERNEL_SECTORS=$(./scripts/get_size.sh)",
+    "echo $KERNEL_SECTORS",
+    "cd bootloader",
+    "nasm -dKERNEL_SIZE=$KERNEL_SECTORS -f bin src/boot.asm -o ../build/boot.bin", # Compile bootloader binary
 ]
 
-[tasks.post-build-clean]
+# Build kernel asm files
+[tasks.build_kernel]
+dependencies = ["clean"]
+workspace = false
 script = [
-    "rm -rf ./target"
+    "cd kernel",
+    "nasm -f elf64 src/boot/entry.asm -o ../build/entry.o",             # Compile entry point asm
+    "nasm -f elf64 src/boot/long.asm -o ../build/long.o",               # Compile long mode asm
+    "cargo build --target x86_64-target.json --features ${DEBUG_MODE}", # Build Kernel
+    "cd ..",
+    "cp target/x86_64-target/debug/libbuzz_os_kernel.a build/kernel.a", # Copy Kernel ELF to build folder
+    "ld -n -o build/kernel.elf -T ${KERNEL_FILES}",                     # Link Kernel ELF and ASM ELFs
+    "objcopy -O binary build/kernel.elf build/kernel.bin",
+    "objdump -S build/kernel.elf > build/kernel.asm"
 ]
 
-[tasks.default]
-alias = "debug"
-
+# Build bootloader asm files
 [tasks.debug]
-dependencies = ["bootloader"]
+dependencies = ["build_kernel", "build_bootloader"]
+workspace = false
 script = [
-    "./scripts/build.sh"
-]
-
-[tasks.dry-run]
-script = [
-    "qemu-system-x86_64 -cdrom build/os.iso"
+    "dd if=/dev/zero of=build/buzz.img count=10000",
+    "dd if=build/boot.bin of=build/buzz.img conv=notrunc",
+    "dd if=build/kernel.bin of=build/buzz.img seek=1 conv=notrunc",
+    "scripts/build.sh"
 ]
