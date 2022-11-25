@@ -33,13 +33,11 @@ pub fn uart_init() -> Result<(), ()> {
         return Err(());
     }
 
-    // *IS_UART_ENABLED.lock() = true;
+    *IS_UART_ENABLED.lock() = true;
 
     // Enable interrupts
     inb(COM1 + 2);
     inb(COM1 + 0);
-
-    println!("ABC");
 
     Ok(())
 }
@@ -47,9 +45,9 @@ pub fn uart_init() -> Result<(), ()> {
 /// Puts a character in the Serial Port
 pub fn uart_put_char(c: char) -> Result<(), ()> {
     // UART safety check
-    // if (*IS_UART_ENABLED.lock() == false) {
-    //     return Err(());
-    // }
+    if (*IS_UART_ENABLED.lock() == false) {
+        return Err(());
+    }
 
     // Serial needs to be ready. Waits for status line to be ready before
     // sending a character.

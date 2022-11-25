@@ -15,7 +15,7 @@ bootloader/src/linker.ld
 build/boot.o
 build/bootloader.a
 """
-DEBUG_MODE = "vga"
+DEBUG_MODE = "console"
 
 # Ensure everything is in place and clear build folder
 [tasks.clean]
@@ -53,12 +53,12 @@ script = [
     # Compile Kernel and move to build Kernel
     "nasm -f elf64 src/boot/entry.asm -o ../build/entry.o",
     "nasm -f elf64 src/boot/long.asm -o ../build/long.o",
-    "cargo build --quiet --target x86_64-target.json --features ${DEBUG_MODE}",
+    "cargo build --target x86_64-target.json --features ${DEBUG_MODE}",
     "cd ..",
     "cp target/x86_64-target/debug/libbuzz_os_kernel.a build/kernel.a",
     
     # Link Kernel binaries
-    "ld --no-warn-rwx-segments -n -o build/kernel.elf -T ${KERNEL_FILES}",
+    "ld -n -o build/kernel.elf -T ${KERNEL_FILES}",
     "objcopy -O binary build/kernel.elf build/kernel.bin",
     "objdump -S -j .text.entry build/kernel.elf > build/kernel.asm",
     "rm build/long.o build/kernel.a build/entry.o"

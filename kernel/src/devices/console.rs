@@ -27,4 +27,6 @@ impl Console {
     }
 }
 
-pub static mut CONSOLE: Console = Console { panicked: false };
+lazy_static! {
+    pub static ref CONSOLE: Mutex<Console> = Mutex::new(Console { panicked: false });
+}

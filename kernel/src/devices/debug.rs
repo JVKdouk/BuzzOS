@@ -46,9 +46,7 @@ pub fn _print(args: fmt::Arguments) {
     TEXT.lock().write_fmt(args).unwrap();
 
     #[cfg(feature = "console")]
-    unsafe {
-        CONSOLE.write_fmt(args);
-    }
+    CONSOLE.lock().write_fmt(args).unwrap();
 }
 
 // Switches between clearing methods
