@@ -1,11 +1,11 @@
 ; Bootloader entry point. This file contains the first 512 bytes to be loaded by the BIOS.
 ; Its goal is to load the rest of the Kernel and setup the jump from 16 to 32 bits.
 
-global _start
-org 0x7c00    ; Bootloaders are commonly loaded at this address in memory
+global _start_16
 
 %include "src/defs.asm"
 
+section .text
 bits 16
 _start_16:
     ; Clear interrupts

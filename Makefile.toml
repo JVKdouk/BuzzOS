@@ -25,40 +25,60 @@ script = [
     "rm -rf ./build/*",
 ]
 
-# Build bootloader asm files
+# Build Bootloader
 [tasks.build_bootloader]
 dependencies = ["clean"]
 workspace = false
 script = [
     "export KERNEL_SECTORS=$(./scripts/get_size.sh)",
-    "echo $KERNEL_SECTORS",
     "cd bootloader",
-    "nasm -dKERNEL_SIZE=$KERNEL_SECTORS -f bin src/boot.asm -o ../build/boot.bin", # Compile bootloader binary
+    
+    # Compile Bootloader binaries
+    "nasm -dKERNEL_SIZE=$KERNEL_SECTORS -f elf64 src/boot.asm -o ../build/boot.elf",
+    
+    # Set ELF at origin address
+    "ld -e _start_16 -Ttext=0x7C00 --oformat binary -o ../build/boot.bin ../build/boot.elf",
+    "ld -e _start_16 -Ttext=0x7C00 --oformat elf64-x86-64 -o ../build/bootloader.elf ../build/boot.elf",
+    "rm ../build/boot.elf",
+    "objdump -S ../build/bootloader.elf > ../build/boot.asm",
 ]
 
-# Build kernel asm files
+# Build Kernel
 [tasks.build_kernel]
 dependencies = ["clean"]
 workspace = false
 script = [
     "cd kernel",
-    "nasm -f elf64 src/boot/entry.asm -o ../build/entry.o",             # Compile entry point asm
-    "nasm -f elf64 src/boot/long.asm -o ../build/long.o",               # Compile long mode asm
-    "cargo build --target x86_64-target.json --features ${DEBUG_MODE}", # Build Kernel
+
+    # Compile Kernel and move to build Kernel
+    "nasm -f elf64 src/boot/entry.asm -o ../build/entry.o",
+    "nasm -f elf64 src/boot/long.asm -o ../build/long.o",
+    "cargo build --quiet --target x86_64-target.json --features ${DEBUG_MODE}",
     "cd ..",
-    "cp target/x86_64-target/debug/libbuzz_os_kernel.a build/kernel.a", # Copy Kernel ELF to build folder
-    "ld -n -o build/kernel.elf -T ${KERNEL_FILES}",                     # Link Kernel ELF and ASM ELFs
+    "cp target/x86_64-target/debug/libbuzz_os_kernel.a build/kernel.a",
+    
+    # Link Kernel binaries
+    "ld --no-warn-rwx-segments -n -o build/kernel.elf -T ${KERNEL_FILES}",
     "objcopy -O binary build/kernel.elf build/kernel.bin",
-    "objdump -S build/kernel.elf > build/kernel.asm"
+    "objdump -S -j .text.entry build/kernel.elf > build/kernel.asm",
+    "rm build/long.o build/kernel.a build/entry.o"
 ]
 
 # Build bootloader asm files
-[tasks.debug]
+[tasks.build_run]
 dependencies = ["build_kernel", "build_bootloader"]
 workspace = false
 script = [
-    "dd if=/dev/zero of=build/buzz.img count=10000",
-    "dd if=build/boot.bin of=build/buzz.img conv=notrunc",
-    "dd if=build/kernel.bin of=build/buzz.img seek=1 conv=notrunc",
-    "scripts/build.sh"
+    # Generate disk image
+    "dd if=/dev/zero of=build/buzz.img count=10000 status=none",
+    "dd if=build/boot.bin of=build/buzz.img conv=notrunc status=none",
+    "dd if=build/kernel.bin of=build/buzz.img seek=1 conv=notrunc status=none",
+    "rm build/kernel.bin",
+    "rm build/boot.bin",
+    
+    # Start OS
+    "scripts/build.sh",
 ]
+
+[tasks.default]
+alias = "build_run"

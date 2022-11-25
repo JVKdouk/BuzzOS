@@ -6,7 +6,7 @@ extern long_mode_start
 ; loading. A couple checks are necessary before we can move to the Rust part.
 
 ; Multibot check comes first, as EAX currently has the magic number
-section .text
+section .text.entry
 bits 32
 start:
     cli
@@ -188,8 +188,6 @@ error:
     mov byte  [0xb800a], al
     hlt
 
-section .bss
-
 ; GDTR Setup
 
 ; Global Description Table Register (GDTR), it is 79 bits long (64 bits mode), where upper
@@ -233,6 +231,7 @@ stack_bottom:
     resb 16384 ; 16 kB of Stack
 stack_top:
 
+section .rodata
 align 4
 zero_idt:
     dw 0
