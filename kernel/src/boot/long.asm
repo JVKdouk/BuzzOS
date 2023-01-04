@@ -1,6 +1,6 @@
 global long_mode_start
 
-section .initial
+section .text.entry
 bits 64
 long_mode_start:
     cli
@@ -18,7 +18,7 @@ long_mode_start:
     extern _start
     call _start
 
-    ; print `OKAY` to screen
+    ; print `ERR` to screen
     mov rax, 0x2f592f412f4b2f4f
     mov qword [0xb8000], rax
     hlt

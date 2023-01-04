@@ -33,7 +33,7 @@ pub unsafe extern "C" fn _start(mem_layout_pointer: usize) -> ! {
     /// Setup Interrupts
     interrupts::idt::setup_idt();
 
-    // x86::helpers::int3();
+    x86::helpers::int3();
     loop {}
 }
 

@@ -23,22 +23,15 @@ _start_16:
     cld
 
     ; Setup stack pointer
-    mov sp, 0x7c00
+    mov sp, 0x7C00
 
 enable_a20:
-    ; enable A20-Line via IO-Port 92, might not work on all motherboards
     in al, 0x92
     test al, 2
-    jnz prepare_load_kernel
+    jnz prepare_protected_mode
     or al, 2
     and al, 0xFE
     out 0x92, al
-
-prepare_load_kernel:
-    ; Enable interrupts
-    sti
-    call load_kernel
-    cli
 
 prepare_protected_mode:
     ; LGDT loads the GDTR (GDT Register) with the provided value.
@@ -52,8 +45,6 @@ prepare_protected_mode:
     ; Perform the jump to 32 bits
     jmp gdt32.code:start_32
 
-%include "src/loader.asm"
-
 bits 32
 start_32:
     ; Update segment registers
@@ -64,9 +55,12 @@ start_32:
     mov gs, eax
     mov ss, eax
 
+prepare_load_kernel:
+    call load_kernel
+
     ; Jump to Kernel entry point in memory
     mov ebx, KERNEL_ENTRY
-    jmp ebx
+    call ebx
     
     ; This part is unreachable. In case it is reached, something went very wrong,
     ; print fail and halt the processor.  
@@ -75,8 +69,6 @@ start_32:
     mov eax, 0x4f4c4f49
     mov dword [0xb8004], eax
     hlt
-
-
 
 ; General descriptor table. This is used to perform linear address translation.
 ; The first entry of the GDT must be zero. The second entry is commonly used for the
@@ -93,21 +85,7 @@ gdt32:
     dw $ - gdt32 - 1  ; GDT Table Size
     dq gdt32          ; GDT Table Offset
 
-; Device Access Packet. This packet is provided to the BIOS on interrupt 0x13, function
-; 0x42 (extended read sector). It provides some information, such as number of sectors to read
-; address of the memory buffer, etc.
-; More information can be found here https://wiki.osdev.org/Disk_access_using_the_BIOS_(INT_13h)
-dap:
-    db 0x10      ; size of dap
-    db 0         ; unused
-dap_blocks:
-    dw 0         ; number of sectors
-dap_buffer_addr:
-    dw 0         ; offset to memory buffer
-dap_buffer_seg:
-    dw 0         ; segment of memory buffer
-dap_start_lba:
-    dq 0         ; start logical block address
+%include "src/loader.asm"
 
 ; Add MBR signature to binary. This allows the BIOS to see this portion of the disk
 ; as a Master Boot Record (MBR).

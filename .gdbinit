@@ -8,5 +8,8 @@ end
 echo + target remote localhost:1234\n
 target remote localhost:1234
 
-echo + symbol-file build/kernel.bin\n
-symbol-file build/kernel.bin
+echo + symbol-file build/bootloader.elf\n
+symbol-file build/bootloader.elf
+
+echo + symbol-file build/kernel.elf\n
+symbol-file build/kernel.elf

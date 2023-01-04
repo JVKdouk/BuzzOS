@@ -6,9 +6,7 @@ edition = "2018"
 [dependencies]
 volatile = "0.2.6" # Volatile allows finer grain control of the compiler
 spin = "0.5.2"
-multiboot2 = "0.1.0"
 bitflags = "1.0.4"
-rustversion = "1.0.5"
 
 [dependencies.lazy_static]
 version = "1.0"
@@ -19,6 +17,14 @@ crate-type=["staticlib"]
 
 [profile.dev]
 panic = "abort"
+opt-level = "z"  # Optimize for size.
+lto = true
+codegen-units = 1
+
+[profile.release]
+opt-level = "z"  # Optimize for size.
+lto = true
+codegen-units = 1
 
 [features]
 vga=[]

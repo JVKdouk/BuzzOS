@@ -15,7 +15,7 @@ bootloader/src/linker.ld
 build/boot.o
 build/bootloader.a
 """
-DEBUG_MODE = "console"
+DEBUG_MODE = "vga"
 
 # Ensure everything is in place and clear build folder
 [tasks.clean]
@@ -34,12 +34,12 @@ script = [
     "cd bootloader",
     
     # Compile Bootloader binaries
-    "nasm -dKERNEL_SIZE=$KERNEL_SECTORS -f elf64 src/boot.asm -o ../build/boot.elf",
+    "nasm -dKERNEL_SIZE=$KERNEL_SECTORS -f elf32 src/boot.asm -o ../build/boot.elf",
     
     # Set ELF at origin address
-    "ld -e _start_16 -Ttext=0x7C00 --oformat binary -o ../build/boot.bin ../build/boot.elf",
-    "ld -e _start_16 -Ttext=0x7C00 --oformat elf64-x86-64 -o ../build/bootloader.elf ../build/boot.elf",
-    "rm ../build/boot.elf",
+    "ld -e _start_16 -Ttext=0x7C00 -b elf32-i386 -m elf_i386 --oformat binary -o ../build/boot.bin ../build/boot.elf",
+    "ld -e _start_16 -Ttext=0x7C00 -b elf32-i386 -m elf_i386 --oformat elf32-i386 -o ../build/bootloader.elf ../build/boot.elf",
+    # "rm ../build/boot.elf",
     "objdump -S ../build/bootloader.elf > ../build/boot.asm",
 ]
 
@@ -59,8 +59,10 @@ script = [
     
     # Link Kernel binaries
     "ld -n -o build/kernel.elf -T ${KERNEL_FILES}",
-    "objcopy -O binary build/kernel.elf build/kernel.bin",
-    "objdump -S -j .text.entry build/kernel.elf > build/kernel.asm",
+    # "objcopy -O binary build/kernel.elf build/kernel.bin",
+    "objdump -S -j .text.entry build/kernel.elf > build/kernel.asm", # OBJDUMP
+    "objdump -t build/kernel.elf | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > build/kernel.sym", # STAB
+    # "strip build/kernel.elf",
     "rm build/long.o build/kernel.a build/entry.o"
 ]
 
@@ -72,12 +74,28 @@ script = [
     # Generate disk image
     "dd if=/dev/zero of=build/buzz.img count=10000 status=none",
     "dd if=build/boot.bin of=build/buzz.img conv=notrunc status=none",
-    "dd if=build/kernel.bin of=build/buzz.img seek=1 conv=notrunc status=none",
-    "rm build/kernel.bin",
+    "dd if=build/kernel.elf of=build/buzz.img seek=1 conv=notrunc status=none",
+    # "rm build/kernel.bin",
     "rm build/boot.bin",
     
     # Start OS
     "scripts/build.sh",
+]
+
+# Build bootloader asm files
+[tasks.gdb]
+dependencies = ["build_kernel", "build_bootloader"]
+workspace = false
+script = [
+    # Generate disk image
+    "dd if=/dev/zero of=build/buzz.img count=10000 status=none",
+    "dd if=build/boot.bin of=build/buzz.img conv=notrunc status=none",
+    "dd if=build/kernel.elf of=build/buzz.img seek=1 conv=notrunc status=none",
+    # "rm build/kernel.bin",
+    # "rm build/boot.bin",
+    
+    # Start OS
+    "qemu-system-x86_64 -s -S -drive file=build/buzz.img,index=0,media=disk,format=raw -no-reboot -no-shutdown -nographic -serial mon:stdio -m 512",
 ]
 
 [tasks.default]

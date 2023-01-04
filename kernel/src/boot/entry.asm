@@ -11,9 +11,6 @@ bits 32
 start:
     cli
 
-    ; Initialize stack pointer to a point we know (stack_top)
-    mov esp, stack_top
-
     ; Save memory layout address
     mov edi, ebx       ; EDI is the first argument to be passed to a function (Linux calling convention)
 
