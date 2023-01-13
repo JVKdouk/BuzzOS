@@ -10,48 +10,53 @@ use crate::{
 
 use super::defs::*;
 
-// *************** Segmentation ***************
-
-impl Segment for CS {
-    fn get_reg() -> u16 {
-        let segment: u16;
-        unsafe {
-            asm!("mov {0:x}, cs", out(reg) segment, options(nomem, nostack, preserves_flags));
-        }
-        segment
-    }
-
-    unsafe fn set_reg(sel: u16) {
-        unsafe {
-            asm!(
-                "push {sel}",
-                "lea {tmp}, [1f + rip]",
-                "push {tmp}",
-                "retfq",
-                "1:",
-                sel = in(reg) u64::from(sel),
-                tmp = lateout(reg) _,
-                options(preserves_flags),
-            );
-        }
-    }
-}
-
-// ******** Interrupt Description Table ********
+// ******** Interrupts ********
 
 #[inline]
-pub unsafe fn lidt(idt: &InterruptDescriptorTablePointer) {
+pub fn lidt(idt: &InterruptDescriptorTablePointer) {
     unsafe {
         asm!("lidt [{}]", in(reg) idt, options(readonly, nostack, preserves_flags));
     }
 }
 
-// *************** GDT ***************
+#[inline]
+pub fn cli() {
+    unsafe {
+        asm!("cli");
+    }
+}
+
+#[inline]
+pub fn sti() {
+    unsafe {
+        asm!("sti");
+    }
+}
+
+// *************** Segmentation ***************
 
 #[inline]
 pub unsafe fn lgdt(gdt: &GlobalDescriptorTablePointer) {
     unsafe {
-        asm!("lgdt [{}]", in(reg) gdt, options(readonly, nostack, preserves_flags));
+        asm!("lgdt [{}]",
+        in(reg) gdt, options(readonly, nostack, preserves_flags));
+    }
+}
+
+#[inline]
+pub fn load_cs(sel: u16) {
+    unsafe {
+        asm!("pushl {0:e}; \
+        pushl $1f; \
+        lretl; \
+        1:", in(reg) sel as u32, options(att_syntax));
+    }
+}
+
+#[inline]
+pub fn set_gs(v: u16) {
+    unsafe {
+        asm!("gs {0:x}", in(reg) v, options(readonly, nostack, preserves_flags));
     }
 }
 

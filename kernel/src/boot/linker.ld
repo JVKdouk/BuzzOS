@@ -1,39 +1,52 @@
-OUTPUT_FORMAT("elf64-x86-64", "elf64-x86-64", "elf64-x86-64")
-OUTPUT_ARCH(i386:x86-64)
-ENTRY(start)
+OUTPUT_FORMAT("elf32-i386", "elf32-i386", "elf32-i386")
+OUTPUT_ARCH(i386)
+ENTRY(entry)
 
 SECTIONS {
 	. = 0x100000;
 
-	.text.entry : {
-		*(.text.entry)
+	.text : AT(0x100000) {
+		*(.text .stub .text.* .gnu.linkonce.t.*)
 	}
 
-    .text : {
-		*(.text .text.* .stub .gnu.linkonce.t.*)
-		. = ALIGN(4096);
-	}
-
-	.data : {
-		*(.data)
-		. = ALIGN(4096);
-	}
+	PROVIDE(etext = .);	/* Define the 'etext' symbol to this value */
 
 	.rodata : {
-		*(.rodata*)
-		. = ALIGN(4096);
+		*(.rodata .rodata.* .gnu.linkonce.r.*)
 	}
 
-	.bss ALIGN (0x1000) : {
-		*(COMMON)
-		*(.bss .bss.*)
-		. = ALIGN(4096);
+	/* Include debugging information in kernel memory */
+	.stab : {
+		PROVIDE(__STAB_BEGIN__ = .);
+		*(.stab);
+		PROVIDE(__STAB_END__ = .);
+		BYTE(0)
 	}
 
-	.eh_frame : AT(ADDR(.eh_frame) - 0x100000) {
-       *(.eh_frame)
-        . = ALIGN(4096);
-   	}
+	.stabstr : {
+		PROVIDE(__STABSTR_BEGIN__ = .);
+		*(.stabstr);
+		PROVIDE(__STABSTR_END__ = .);
+		BYTE(0)
+	}
 
-	KERNEL_END = .;
+	. = ALIGN(0x1000);
+
+	PROVIDE(data = .);
+
+	.data : {
+    *(.data)
+	}
+
+	PROVIDE(edata = .);
+
+	.bss : {
+		*(.bss)
+	}
+
+	PROVIDE(end = .);
+
+	/DISCARD/ : {
+		*(.eh_frame .note.GNU-stack)
+	}
 }

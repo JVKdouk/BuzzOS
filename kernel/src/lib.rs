@@ -20,7 +20,7 @@ use core::panic::PanicInfo;
 // _start is the default entry point for most systems. Function is diverging as the Kernel should
 // never return
 #[no_mangle]
-pub unsafe extern "C" fn _start(mem_layout_pointer: usize) -> ! {
+pub unsafe extern "C" fn _start() -> ! {
     /// Initialize debugging method (VGA or Console)
     devices::debug::debug_init();
     devices::debug::_clear();
@@ -28,11 +28,10 @@ pub unsafe extern "C" fn _start(mem_layout_pointer: usize) -> ! {
 
     /// Setup Segmentation and Virtual Memory
     memory::gdt::setup_gdt();
-    memory::vm::setup_vm(mem_layout_pointer);
+    memory::vm::setup_vm();
 
     /// Setup Interrupts
     interrupts::idt::setup_idt();
-
     x86::helpers::int3();
     loop {}
 }

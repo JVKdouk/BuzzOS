@@ -13,6 +13,6 @@ RUN rustup component add rust-src
 RUN cargo install --no-default-features --force cargo-make
 
 # Install rest of dependencies 
-RUN apk add qemu-system-x86_64 binutils-gold nasm perl
+RUN apk add qemu-system-x86 binutils-gold nasm perl
 
 WORKDIR /buzz

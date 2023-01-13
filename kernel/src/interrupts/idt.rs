@@ -2,13 +2,7 @@ use core::{marker::PhantomData, mem::size_of};
 
 use lazy_static::lazy_static;
 
-use crate::{
-    interrupts::handlers::*,
-    x86::{
-        defs::{Segment, CS},
-        helpers::lidt,
-    },
-};
+use crate::{interrupts::handlers::*, println, x86::helpers::lidt};
 
 use super::defs::*;
 
@@ -17,11 +11,10 @@ impl<F> Gate<F> {
     #[inline]
     pub const fn empty() -> Self {
         // Ensure our gate is an interrupt at startup.
-        let flags = GateFlags::INTGATE as u16;
+        let flags = GateFlags::INTGATE as u8;
 
         Gate {
             fn_addr_low: 0,
-            fn_addr_middle: 0,
             fn_addr_high: 0,
             segment_selector: 0,
             reserved: 0,
@@ -32,12 +25,11 @@ impl<F> Gate<F> {
 
     // Set gate handler. Accepts the 64-bits address of the handler function
     #[inline]
-    pub unsafe fn set_handler_addr(&mut self, addr: u64) -> &mut u16 {
+    pub unsafe fn set_handler_addr(&mut self, addr: u32) -> &mut u8 {
         self.fn_addr_low = addr as u16;
-        self.fn_addr_middle = (addr >> 16) as u16;
-        self.fn_addr_high = (addr >> 32) as u32;
-        self.segment_selector = CS::get_reg();
-        self.flags |= GateFlags::PRESENT as u16;
+        self.fn_addr_high = (addr >> 16) as u16;
+        self.segment_selector = 0x8;
+        self.flags |= GateFlags::PRESENT as u8;
         &mut self.flags
     }
 }
@@ -45,7 +37,7 @@ impl<F> Gate<F> {
 impl Gate<InterruptHandler> {
     #[inline]
     pub fn set_handler_fn(&mut self, handler: InterruptHandler) {
-        let handler = handler as u64;
+        let handler = handler as u32;
         unsafe { self.set_handler_addr(handler) };
     }
 }
@@ -53,7 +45,15 @@ impl Gate<InterruptHandler> {
 impl Gate<InterruptHandlerWithErr> {
     #[inline]
     pub fn set_handler_fn(&mut self, handler: InterruptHandlerWithErr) {
-        let handler = handler as u64;
+        let handler = handler as u32;
+        unsafe { self.set_handler_addr(handler) };
+    }
+}
+
+impl Gate<PageFaultHandler> {
+    #[inline]
+    pub fn set_handler_fn(&mut self, handler: PageFaultHandler) {
+        let handler = handler as u32;
         unsafe { self.set_handler_addr(handler) };
     }
 }
@@ -65,7 +65,7 @@ impl IDT {
     #[inline]
     pub fn new() -> IDT {
         IDT {
-            divide_by_zero: Gate::empty(),
+            div_by_zero: Gate::empty(),
             debug: Gate::empty(),
             non_maskable_interrupt: Gate::empty(),
             breakpoint: Gate::empty(),
@@ -78,7 +78,7 @@ impl IDT {
             invalid_tss: Gate::empty(),
             segment_not_present: Gate::empty(),
             stack_segment_fault: Gate::empty(),
-            general_protection_fault: Gate::empty(),
+            gen_protection_fault: Gate::empty(),
             page_fault: Gate::empty(),
             reserved_1: Gate::empty(),
             x87_floating_point: Gate::empty(),
@@ -100,7 +100,7 @@ impl IDT {
     /// safely used if the table is never modified or destroyed while in use.
     fn pointer(&self) -> InterruptDescriptorTablePointer {
         InterruptDescriptorTablePointer {
-            base: self as *const _ as u64,
+            base: self as *const _ as u32,
             limit: (size_of::<Self>() - 1) as u16,
         }
     }
@@ -121,15 +121,18 @@ lazy_static! {
         let mut global_idt = IDT::new();
 
         /// Setup Handler
-        global_idt
-            .divide_by_zero
-            .set_handler_fn(div_by_zero_handler);
+        global_idt.div_by_zero.set_handler_fn(div_by_zero_handler);
         global_idt.breakpoint.set_handler_fn(breakpoint_handler);
-        global_idt.double_fault.set_handler_fn(double_fault_handler);
+        global_idt.gen_protection_fault.set_handler_fn(gen_protection_fault);
+        // global_idt.double_fault.set_handler_fn(double_fault_handler);
+        global_idt.page_fault.set_handler_fn(page_fault);
+        global_idt.overflow.set_handler_fn(overflow);
+        global_idt.bound_range_exceeded.set_handler_fn(bound_range);
         global_idt
     };
 }
 
 pub fn setup_idt() {
     GLOBAL_IDT.load();
+    println!("[INIT] Interrupt Table Initialized");
 }

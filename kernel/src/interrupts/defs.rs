@@ -7,7 +7,7 @@ use core::marker::PhantomData;
 #[repr(C, packed(2))]
 pub struct InterruptDescriptorTablePointer {
     pub limit: u16, // Size
-    pub base: u64,  // Pointer to Starting Address
+    pub base: u32,  // Pointer to Starting Address
 }
 
 /// The generic parameter defines what handler should be used (with/without error description,
@@ -17,10 +17,9 @@ pub struct InterruptDescriptorTablePointer {
 pub struct Gate<F> {
     pub fn_addr_low: u16,        // Function Address Low (16 bits)
     pub segment_selector: u16,   // Segment Selector (16 bits)
-    pub flags: u16,              // Flags (16 bits)
-    pub fn_addr_middle: u16,     // Function Address Middle (16 bits)
-    pub fn_addr_high: u32,       // Function Address High (32 bits)
-    pub reserved: u32,           // Used by Processor (32 bits)
+    pub reserved: u8,            // Reserver by Processor (8 bits)
+    pub flags: u8,               // Flags (16 bits)
+    pub fn_addr_high: u16,       // Function Address High (32 bits)
     pub handler: PhantomData<F>, // Phanthom Handler. This field does not exist in the final struct
 }
 
@@ -31,7 +30,7 @@ pub struct Gate<F> {
 pub struct IDT {
     /// Definition of Processor Exceptions.
     /// Complete list can be found here: https://wiki.osdev.org/Exceptions
-    pub divide_by_zero: Gate<InterruptHandler>,
+    pub div_by_zero: Gate<InterruptHandler>,
     pub debug: Gate<InterruptHandler>,
     pub non_maskable_interrupt: Gate<InterruptHandler>,
     pub breakpoint: Gate<InterruptHandler>,
@@ -48,7 +47,7 @@ pub struct IDT {
     pub invalid_tss: Gate<InterruptHandlerWithErr>,
     pub segment_not_present: Gate<InterruptHandlerWithErr>,
     pub stack_segment_fault: Gate<InterruptHandler>,
-    pub general_protection_fault: Gate<InterruptHandlerWithErr>,
+    pub gen_protection_fault: Gate<InterruptHandlerWithErr>,
     pub page_fault: Gate<PageFaultHandler>,
 
     pub reserved_1: Gate<InterruptHandler>,
@@ -75,15 +74,14 @@ pub struct IDT {
 /// Gate Flags. Those allow fine grain control of how and when should traps/interrupts be issued.
 /// You can see more at https://wiki.osdev.org/Interrupt_Descriptor_Table#Gate_Descriptor_2
 pub enum GateFlags {
-    IST = 0b111,            // Offset in the Interrupt Stack Table. If 0, not used.
-    INTGATE = 0b1110 << 8,  // Is it an interrupt?
-    TRAPGATE = 0b1111 << 8, // Is it a trap?
-    DISABLE = 0b1 << 8,     // Is interrupts enabled?
-    DPL0 = 0b00 << 13,      // Permission Level of 0 (Kernel)
-    DPL1 = 0b01 << 13,      // Permission Level of 1
-    DPL2 = 0b10 << 13,      // Permission Level of 2
-    DPL3 = 0b11 << 13,      // Permission Level of 3 (User)
-    PRESENT = 0b1 << 15,    // Is it present?
+    INTGATE = 0b1110,   // Is it an interrupt?
+    TRAPGATE = 0b1111,  // Is it a trap?
+    DISABLE = 0b1,      // Is interrupts enabled?
+    DPL0 = 0b00 << 5,   // Permission Level of 0 (Kernel)
+    DPL1 = 0b01 << 5,   // Permission Level of 1
+    DPL2 = 0b10 << 5,   // Permission Level of 2
+    DPL3 = 0b11 << 5,   // Permission Level of 3 (User)
+    PRESENT = 0b1 << 7, // Is it present?
 }
 
 /// Once an interrupt occurs, the CPU saves old stack pointers (rsp and ss), align the stack pointer,
@@ -103,15 +101,15 @@ pub struct InterruptStack {
 #[repr(C)]
 pub struct InterruptStackFrame {
     /// Where to return after interrupt is completed
-    pub instruction_pointer: u64,
+    pub instruction_pointer: u32,
     /// The code segment selector, padded with zeros.
-    pub code_segment: u64,
+    pub code_segment: u32,
     /// The flags register before the interrupt handler was invoked.
-    pub cpu_flags: u64,
+    pub cpu_flags: u32,
     /// The stack pointer at the time of the interrupt.
-    pub stack_pointer: u64,
+    pub stack_pointer: u32,
     /// The stack segment descriptor at the time of the interrupt (often zero in 64-bit mode).
-    pub stack_segment: u64,
+    pub stack_segment: u32,
 }
 
 /// Type of an interrupt handler without error. Notice the calling convention "x86-interrupt." This tells
@@ -121,7 +119,7 @@ pub struct InterruptStackFrame {
 /// limitation, x86-interrupt calling convention forces all registers to be backed up and later restored.
 /// Some handlers have error codes, others do not.
 pub type InterruptHandler = extern "x86-interrupt" fn(InterruptStackFrame);
-pub type InterruptHandlerWithErr = extern "x86-interrupt" fn(InterruptStackFrame, error_code: u64);
+pub type InterruptHandlerWithErr = extern "x86-interrupt" fn(InterruptStackFrame, error_code: u32);
 pub type PageFaultHandler =
     extern "x86-interrupt" fn(InterruptStackFrame, error_code: PageFaultErr);
 
@@ -129,7 +127,7 @@ pub type PageFaultHandler =
 // different than other gates.
 bitflags! {
     #[repr(transparent)]
-    pub struct PageFaultErr: u64 {
+    pub struct PageFaultErr: u32 {
         const FAILURE_TYPE = 1;          // Failure Type (0 = Not Present; 1 = Protected)
         const WRITE_FAILURE = 1 << 1;    // Operation Type (0 = Read; 1 = Write)
         const CPL_USER = 1 << 2;         // Exception Address-Space (0 = Kernel; 1 = User).

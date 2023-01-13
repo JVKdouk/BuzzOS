@@ -3,9 +3,8 @@ use core::mem::size_of;
 use lazy_static::lazy_static;
 
 use crate::memory::defs::*;
-use crate::x86::defs::{
-    LongSegmentDescriptor, PrivilegeLevel, Segment, ShortSegmentDescriptor, CS,
-};
+use crate::x86::defs::{LongSegmentDescriptor, PrivilegeLevel, ShortSegmentDescriptor};
+use crate::x86::helpers::load_cs;
 use crate::{println, x86::helpers::lgdt};
 
 use super::defs;
@@ -77,7 +76,7 @@ impl GlobalDescriptorTable {
     pub fn pointer(&self) -> GlobalDescriptorTablePointer {
         GlobalDescriptorTablePointer {
             base: self.table.as_ptr() as u64,
-            size: (self.len * size_of::<u64>() - 1) as u16,
+            size: (self.len * size_of::<u32>() - 1) as u16,
         }
     }
 }
@@ -87,6 +86,7 @@ impl DescriptorFlags {
     pub const KERNEL_DATA: Self = Self::from_bits_truncate(
         Self::DEFAULT_SIZE.bits()
             | Self::USER_SEGMENT.bits()
+            | Self::DEFAULT_SIZE.bits()
             | Self::PRESENT.bits()
             | Self::WRITABLE.bits()
             | Self::ACCESSED.bits()
@@ -96,10 +96,10 @@ impl DescriptorFlags {
     );
 
     // A 64-bit kernel code segment
-    pub const KERNEL_CODE64: Self = Self::from_bits_truncate(
+    pub const KERNEL_CODE32: Self = Self::from_bits_truncate(
         Self::USER_SEGMENT.bits()
             | Self::EXECUTABLE.bits()
-            | Self::LONG_MODE.bits()
+            | Self::DEFAULT_SIZE.bits()
             | Self::PRESENT.bits()
             | Self::WRITABLE.bits()
             | Self::ACCESSED.bits()
@@ -114,14 +114,15 @@ impl DescriptorFlags {
 
     // A 64-bit user code segment
     pub const USER_CODE64: Self =
-        Self::from_bits_truncate(Self::KERNEL_CODE64.bits() | Self::DPL_RING_3.bits());
+        Self::from_bits_truncate(Self::KERNEL_CODE32.bits() | Self::DPL_RING_3.bits());
 }
 
 pub fn setup_gdt() {
+    println!("[GDT] Segment Selector 1: {:X}", KERNEL_CODE_SEGMENT);
     GLOBAL_GDT.refresh();
 
     let cs_selector = GLOBAL_GDT.get_selector(1);
-    unsafe { CS::set_reg(cs_selector) }
+    load_cs(cs_selector);
 
     println!("[INIT] Global Descriptor Table Initialized ")
 }

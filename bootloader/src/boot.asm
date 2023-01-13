@@ -22,16 +22,18 @@ _start_16:
     ; Clear direction bits
     cld
 
-    ; Setup stack pointer
-    mov sp, 0x7C00
-
 enable_a20:
-    in al, 0x92
-    test al, 2
-    jnz prepare_protected_mode
-    or al, 2
-    and al, 0xFE
-    out 0x92, al
+    in al, 0x64
+    test al, 0x2
+    jnz enable_a20
+    mov al, 0xd1
+    out 0x64, al
+enable_a20_2:
+    in al, 0x64
+    test al, 0x2
+    jnz enable_a20_2
+    mov al, 0xdf
+    out 0x60, al
 
 prepare_protected_mode:
     ; LGDT loads the GDTR (GDT Register) with the provided value.
@@ -48,18 +50,23 @@ prepare_protected_mode:
 bits 32
 start_32:
     ; Update segment registers
-    mov eax, gdt32.data
-    mov ds, eax
-    mov es, eax
-    mov fs, eax
-    mov gs, eax
-    mov ss, eax
+    mov ax, gdt32.data
+    mov ds, ax
+    mov es, ax
+    mov ss, ax
+
+    ; Reset other selector registers
+    mov ax, 0
+    mov gs, ax
+    mov fs, ax
+
+    ; Setup stack pointer
+    mov sp, 0x7C00
 
 prepare_load_kernel:
     call load_kernel
 
     ; Jump to Kernel entry point in memory
-    mov ebx, KERNEL_ENTRY
     call ebx
     
     ; This part is unreachable. In case it is reached, something went very wrong,
@@ -69,6 +76,8 @@ prepare_load_kernel:
     mov eax, 0x4f4c4f49
     mov dword [0xb8004], eax
     hlt
+
+%include "src/loader.asm"
 
 ; General descriptor table. This is used to perform linear address translation.
 ; The first entry of the GDT must be zero. The second entry is commonly used for the
@@ -84,8 +93,6 @@ gdt32:
 .pointer:
     dw $ - gdt32 - 1  ; GDT Table Size
     dq gdt32          ; GDT Table Offset
-
-%include "src/loader.asm"
 
 ; Add MBR signature to binary. This allows the BIOS to see this portion of the disk
 ; as a Master Boot Record (MBR).

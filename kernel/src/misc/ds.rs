@@ -11,7 +11,7 @@ pub struct LinkedListNode<T> {
 
 pub struct LinkedList<T> {
     pub head: Option<*const LinkedListNode<T>>,
-    pub size: u64,
+    pub size: u32,
 }
 
 impl<T: Copy + Debug> LinkedList<T> {

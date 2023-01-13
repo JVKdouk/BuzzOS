@@ -17,12 +17,15 @@
 %define ATA_STATUS_REG       0x1F7
 %define ATA_CMD_READ_SECTORS 0x20
 
-; ELF
-%define ELF_PH_OFFSET        32
-%define ELF_PHNUM_OFFSET     56
-%define ELF_PHPA_OFFSET      24
-%define ELF_PHFILESZ_OFFSET  32
-%define ELF_PHMEMSZ_OFFSET   40
-%define ELF_PHOFF_OFFSET     8
-%define ELF_PH_SIZE          56
+; ELF Header
+%define ELF_ENTRY            24
+%define ELF_PH_OFFSET        28
+%define ELF_PHNUM_OFFSET     40
+
+; ELF Program Header
+%define ELF_PHPA_OFFSET      12
+%define ELF_PHFILESZ_OFFSET  16
+%define ELF_PHMEMSZ_OFFSET   20
+%define ELF_PHOFF_OFFSET     4
+%define ELF_PH_SIZE          32
 %define ELF_MAGIC            0x464C457F

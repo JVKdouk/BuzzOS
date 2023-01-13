@@ -50,6 +50,8 @@ load_program_headers:
     cmp ebx, eax
     jl load_program_headers
 
+    mov ebx, dword [KERNEL_BUFFER + ELF_ENTRY]
+
     ret
 
 ; Load segment from disk
