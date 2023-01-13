@@ -3,7 +3,7 @@ function usage() {
     Usage: $0 [--attach] [--pull]
 
     Options:
-	(default): create Docker image "xv6" and attach
+	(default): create Docker image "BuzzOS" and attach
         --attach: attach to created Docker image (useful for GDB)
         --pull:	load latest Docker image from registry
 USAGE

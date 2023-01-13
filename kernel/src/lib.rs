@@ -23,7 +23,6 @@ use core::panic::PanicInfo;
 pub unsafe extern "C" fn _start() -> ! {
     /// Initialize debugging method (VGA or Console)
     devices::debug::debug_init();
-    devices::debug::_clear();
     misc::logo::print_logo();
 
     /// Setup Segmentation and Virtual Memory

@@ -1,4 +1,4 @@
-use crate::{devices::vga, devices::vga::Color::*, println, set_color};
+use crate::println;
 
 pub static OS_LOGO_HEADER: &str = " ____                     ____    _____ 
 |  _ \\                   / __ \\  / ____|
@@ -8,9 +8,6 @@ pub static OS_LOGO_HEADER: &str = " ____                     ____    _____
 |____/  \\__,_|/___|/___| \\____/ |_____/";
 
 pub fn print_logo() {
-    set_color!(Yellow, Black);
-    println!("{}", OS_LOGO_HEADER);
-
-    set_color!(White, Black);
+    println!("\n{}", OS_LOGO_HEADER);
     println!("Version 0.1 - By Joao Kdouk\n\n");
 }
