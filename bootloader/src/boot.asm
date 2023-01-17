@@ -69,12 +69,7 @@ prepare_load_kernel:
     ; Jump to Kernel entry point in memory
     call ebx
     
-    ; This part is unreachable. In case it is reached, something went very wrong,
-    ; print fail and halt the processor.  
-    mov eax, 0x4f414f46
-    mov dword [0xb8000], eax
-    mov eax, 0x4f4c4f49
-    mov dword [0xb8004], eax
+    ; This part is unreachable. In case it is reached, something went very wrong.
     hlt
 
 %include "src/loader.asm"

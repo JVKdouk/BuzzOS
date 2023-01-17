@@ -4,6 +4,7 @@
 #![feature(mixed_integer_ops)]
 #![feature(abi_x86_interrupt)]
 #![feature(const_mut_refs)]
+#![feature(alloc_error_handler)]
 #[macro_use]
 
 pub mod devices;
@@ -26,12 +27,11 @@ pub unsafe extern "C" fn _start() -> ! {
     misc::logo::print_logo();
 
     /// Setup Segmentation and Virtual Memory
-    memory::gdt::setup_gdt();
     memory::vm::setup_vm();
+    memory::gdt::setup_gdt();
 
     /// Setup Interrupts
     interrupts::idt::setup_idt();
-    x86::helpers::int3();
     loop {}
 }
 

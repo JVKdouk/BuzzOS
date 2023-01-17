@@ -34,6 +34,7 @@ SECTIONS {
 
 	PROVIDE(data = .);
 
+	/* The data segment */
 	.data : {
     *(.data)
 	}

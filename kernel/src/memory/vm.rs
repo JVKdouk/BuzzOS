@@ -3,7 +3,7 @@ use lazy_static::lazy_static;
 use spin::Mutex;
 
 use super::defs::*;
-use crate::{misc::ds::LinkedList, println};
+use crate::{println, x86::helpers::lcr3};
 
 // External start of the data section
 extern "C" {
@@ -14,7 +14,7 @@ extern "C" {
     static edata: *const u8;
 
     #[no_mangle]
-    static end: *const u8;
+    static end: usize;
 }
 
 macro_rules! pgroundup {
@@ -40,6 +40,18 @@ macro_rules! V2P {
 macro_rules! P2V {
     ($n:expr) => {
         ($n) + KERNEL_BASE
+    };
+}
+
+macro_rules! PAGE_TABLE_INDEX {
+    ($n:expr) => {
+        ($n >> PAGE_TABLE_SHIFT) & 0x3FF
+    };
+}
+
+macro_rules! PAGE_DIR_INDEX {
+    ($n:expr) => {
+        ($n >> PAGE_DIR_SHIFT) & 0x3FF
     };
 }
 
@@ -78,32 +90,18 @@ lazy_static! {
 ]);
 }
 
-// pub static PAGE_LIST: Mutex<LinkedList<u32>> = Mutex::new(LinkedList::new());
+pub static KERNEL_PAGE_DIR: Mutex<Option<usize>> = Mutex::new(None);
+pub static PAGE_LIST: Mutex<[usize; 8192]> = Mutex::new([0; 8192]);
 
-// fn setup_mem_pages(mem_segment: (u32, u32)) -> u32 {
-//     let (addr, size) = mem_segment;
-//     let mem_top = addr + size;
+fn free_range(start_address: usize, end_address: usize) {
+    let start_address = pgroundup!(start_address);
 
-//     let rounded_base = pgroundup!(addr);
-//     let rounder_top = pgrounddown!(mem_top);
-//     let rounded_size = rounder_top - rounded_base;
+    for page_address in ((start_address + PAGE_SIZE)..=end_address).step_by(PAGE_SIZE) {
+        free_page(page_address);
+    }
+}
 
-//     // let n_pages = (rounded_size / 4096) as u32;
-//     let n_pages = 5 as u32;
-
-//     let mut page_list = PAGE_LIST.lock();
-
-//     for i in 0..(n_pages) {
-//         (*page_list).push(rounded_base + i * 4096);
-//     }
-
-//     // println!("{:X}", (*page_list).pop().unwrap());
-//     // println!("{:X}", (*page_list).pop().unwrap());
-
-//     return n_pages;
-// }
-
-fn zero_page(page_addr: u32) {
+fn zero_page(page_addr: usize) {
     unsafe {
         let page_addr = page_addr as *mut u32;
         for i in 0..(PAGE_SIZE) {
@@ -112,53 +110,112 @@ fn zero_page(page_addr: u32) {
     }
 }
 
-// fn free_page(page_addr: u32) {
-//     if (page_addr % PAGE_SIZE || v < end)
+fn free_page(page_addr: usize) {
+    let is_aligned = page_addr % PAGE_SIZE as usize == 0;
+    let is_in_range = page_addr >= unsafe { end } && V2P!(page_addr) < PHYSICAL_TOP;
 
-//     let mut page_list = PAGE_LIST.lock();
-//     zero_page(page_addr);
+    if (!is_aligned || !is_in_range) {
+        panic!("Could not free page");
+    }
 
-//     (*page_list).push(page_addr);
-// }
+    let mut page_list = PAGE_LIST.lock();
+    zero_page(page_addr);
+}
 
-// fn get_free_page() -> Option<u32> {
-//     let mut page_list = PAGE_LIST.lock();
-//     return (*page_list).pop();
-// }
+fn allocate_page() -> usize {
+    let mut page_list = PAGE_LIST.lock();
+    let value = 1;
+    return value;
+}
 
-// // Multiboot Memory Layout fields can be found at
-// // https://www.gnu.org/software/grub/manual/multiboot/html_node/multiboot_002eh.html
-// // Function responsible for indexing the memory layout and extracting the biggest memory
-// // segment.
-// fn setup_mem_layout(mem_pointer: usize) -> (u32, u32) {
-//     let boot_info_block = unsafe { multiboot2::load(mem_pointer) };
-//     let mem_tag = boot_info_block
-//         .memory_map_tag()
-//         .expect("Memory map tag not found");
+fn walk_page_dir(
+    page_dir: *mut usize,
+    virtual_address: usize,
+    should_allocate: bool,
+) -> *mut usize {
+    let page_directory_offset = PAGE_DIR_INDEX!(virtual_address as isize);
+    let page_directory_entry = unsafe { *page_dir.offset(page_directory_offset) };
+    let is_entry_valid = (page_directory_entry & PTE_P) > 0;
 
-//     let mut memory_segment: (u32, u32) = (0, 0);
-//     for memory_area in mem_tag.memory_areas() {
-//         let (addr, size) = memory_segment;
+    let page_table: usize;
 
-//         if (memory_area.length > size) {
-//             memory_segment = (memory_area.base_addr, memory_area.length);
-//         }
-//     }
+    if (is_entry_valid == true) {
+        page_table = page_directory_entry & !0xFFF;
+    } else {
+        if (!should_allocate) {
+            panic!("Page walk failed: Not allowed to allocate");
+        }
 
-//     return memory_segment;
-// }
+        page_table = allocate_page();
+        zero_page(page_table);
+
+        unsafe {
+            *(page_directory_entry as *mut usize) = V2P!(page_table) | PTE_P | PTE_W | PTE_U;
+        }
+    }
+
+    let page_table_offset = PAGE_TABLE_INDEX!(virtual_address as isize);
+    return unsafe { (page_table as *mut usize).offset(page_table_offset) };
+}
+
+fn map_pages(
+    page_dir: *mut usize,
+    virtual_address: usize,
+    size: usize,
+    mut physical_address: usize,
+    perm: usize,
+) {
+    let mut start_address = pgrounddown!(virtual_address) as *mut usize;
+    let end_address = pgrounddown!(virtual_address + size - 1) as *mut usize;
+
+    loop {
+        let page_table_entry = walk_page_dir(page_dir, virtual_address, true);
+        let is_page_entry_present = unsafe { *page_table_entry & PTE_P } > 0;
+
+        if (is_page_entry_present) {
+            panic!("Page table was remapped");
+        }
+
+        unsafe { *page_table_entry = physical_address | perm | PTE_P }
+
+        if (start_address == end_address) {
+            break;
+        }
+
+        start_address = unsafe { start_address.offset(PAGE_SIZE as isize) };
+        physical_address += PAGE_SIZE;
+    }
+}
+
+fn setup_kernel_page_tables() -> *mut usize {
+    let page_dir: *mut usize = allocate_page() as *mut usize;
+
+    zero_page(page_dir as usize);
+
+    if (P2V!(PHYSICAL_TOP) > DEVICE_SPACE) {
+        panic!("PHYSTOP is too high");
+    }
+
+    let kernel_mem_layout = KERNEL_MEMORY_LAYOUT.lock();
+
+    for entry in kernel_mem_layout.iter() {
+        map_pages(
+            page_dir,
+            entry.virt as usize,
+            entry.phys_end - entry.phys_start,
+            entry.phys_start,
+            entry.perm,
+        );
+    }
+
+    return page_dir;
+}
+
+fn switch_kernel_vm() {
+    lcr3(KERNEL_PAGE_DIR.lock().unwrap());
+}
 
 pub fn setup_vm() {
-    println!("[INIT] {:p}", unsafe { end });
     println!("[INIT] Mapping Memory");
-
-    // let mem_segment = setup_mem_layout(mem_layout_pointer);
-    // println!(
-    //     "[INIT] Memory Segment From 0x{:X} to 0x{:X}",
-    //     mem_segment.0,
-    //     mem_segment.0 + mem_segment.1
-    // );
-
-    // let n_pages = setup_mem_pages(mem_segment);
     println!("[INIT] Mapped {} Pages", 0);
 }

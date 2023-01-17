@@ -18,7 +18,3 @@ crate-type=["staticlib"]
 [profile.dev]
 panic = "abort"
 debug = true
-
-[features]
-vga=[]
-console=[]

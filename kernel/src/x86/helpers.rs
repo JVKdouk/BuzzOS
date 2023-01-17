@@ -10,6 +10,15 @@ use crate::{
 
 use super::defs::*;
 
+// ******** Control Registers ********
+
+#[inline]
+pub fn lcr3(page_dir: usize) {
+    unsafe {
+        asm!("mov cr3, {}", in(reg) page_dir, options(nostack, preserves_flags));
+    }
+}
+
 // ******** Interrupts ********
 
 #[inline]

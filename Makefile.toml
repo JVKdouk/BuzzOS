@@ -37,7 +37,7 @@ script = [
     "ld -e _start_16 -Ttext=0x7C00 -b elf32-i386 -m elf_i386 --oformat binary -o ../build/boot.bin ../build/boot.elf",
     "ld -e _start_16 -Ttext=0x7C00 -b elf32-i386 -m elf_i386 --oformat elf32-i386 -o ../build/bootloader.elf ../build/boot.elf",
     "objdump -S ../build/bootloader.elf > ../build/boot.asm",
-    "rm ../build/boot.elf ../build/bootloader.elf",
+    "rm ../build/boot.elf",
 ]
 
 # Build Kernel
@@ -82,7 +82,7 @@ script = [
     "dd if=/dev/zero of=build/buzz.img count=10000 status=none",
     "dd if=build/boot.bin of=build/buzz.img conv=notrunc status=none",
     "dd if=build/kernel.elf of=build/buzz.img seek=1 conv=notrunc status=none",
-    "rm build/boot.bin build/kernel.elf",
+    "rm build/boot.bin",
     
     # Start OS
     "qemu-system-i386 -s -S -drive file=build/buzz.img,index=0,media=disk,format=raw -no-reboot -no-shutdown -nographic -serial mon:stdio -m 512",

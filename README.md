@@ -79,7 +79,7 @@ Find the address of \_start, the entry point of the kernel:
 ```bash
 $ nm build/kernel.elf | grep _start
 00100075 t kernel_start
-001000a0 T _start
+**001000a0 T _start**
 00137a40 T _ZN4core5slice5ascii30_$LT$impl$u20$$u5b$u8$u5d$$GT$16trim_ascii_start17hecf97417a20180cdE
 ```
 
@@ -91,18 +91,19 @@ following:
 ```bash
 $ gdb
 ...
-The target architecture is assumed to be i8086
-[f000:fff0]    0xffff0: ljmp   $0xf000,$0xe05b
+The target architecture is set to "auto" (currently "i386").
 0x0000fff0 in ?? ()
-+ symbol-file kernel
-(gdb) br *0x0010000c
-Breakpoint 1 at 0x10000c
++ symbol-file build/kernel.elf
+warning: Missing auto-load script at offset 0 in section .debug_gdb_scripts
+of file /home/jvck/Documents/Projects/BuzzOS/build/kernel.elf.
+Use 'info auto-load python-scripts [REGEXP]' to list them.
+(gdb) br *0x100000
+Breakpoint 1 at 0x100000
 (gdb) c
 Continuing.
 The target architecture is assumed to be i386
-=> 0x10000c:  mov    %cr4,%eax
 
-Thread 1 hit Breakpoint 1, 0x0010000c in ?? ()
+Breakpoint 1, 0x00100000 in entry ()
 (gdb)
 
 
@@ -122,44 +123,16 @@ stack will be at higher addresses the earlier they were pushed on.
 
 Answer the following on Gradescope:
 
-1. To what address is the stack initialized during the bootloading process?
-   (Another way to answer this is to ask yourself what's the bottom of the
-   stack?)
+1. To what address is the stack initialized during the bootloading process? (Another way to answer this is to ask yourself what's the bottom of the stack?). Write your answer as a hexadecimal number (like `0xA1B2` for example).
 
-2. What items are on the stack at this point (pc = 0x1000a0)?
+2. What items are on the stack at this point (`pc = 0x100000`)?
 
-To understand what is on the stack, you need to understand the boot procedure
-because at this point the kernel has not started, so anything on the stack was
-put there by the bootloader. Look at the files `bootblock/bootasm.S`,
-`bootblock/bootmain.c`, and `build/bootblock/bootblock.asm`. Can you see what
-they are putting on the stack?
+To understand what is on the stack, you need to understand the boot procedure because at this point the kernel has not started, so anything on the stack was put there by the bootloader. Look at the files `bootloader/src/boot.asm`, and `bootloader/src/loader.asm`. Can you see what they are putting on the stack?
 
-3. Restart qemu and gdb as above but now set a break-point at 0x7c00. This is
-   the start of the boot block (`bootblock/bootasm.S`). Using the single
-   instruction step (si) step through the bootblock. Where is the stack pointer
-   initialized (filename, line)?
+3. Restart QEMU and GDB as above but now set a break-point at `0x7C00`. This is the start of the bootloader (`bootloader/src/boot.asm`). Using the single instruction step (`si`) step through the bootloader. Where is the stack pointer initialized?
 
-4. Single-step into bootmain. Now, look at the stack using x/24x $esp. What is
-   there?
+4. Single-step into the load_kernel function. Now, look at the stack using `x/24x $esp`. What is in there?
 
-5. What does the initial assembly of bootmain do to the stack? (Look in
-   bootblock.asm for bootmain.)
+5. What does the initial assembly of the boot procedure do to the stack? (Look in `build/boot.asm` and try to reason in which moments the Stack is modified)
 
-6. Continue tracing. You can use breakpoints to skip over things. Look for
-   where eip is set to 0x10000c. What happens to the stack as a result of that
-   call? Look at the bootmain C code and compare it to the bootblock.asm assembly
-   code.
-
-## Extra (not graded)
-
-For thought: Most modern OSs boot using a
-firmware standard called UEFI instead of the older standard BIOS. Bootloaders
-like grub are designed to support both standards. Thus, grub should be able to
-boot xv6 on UEFI. Xv6 is not able to boot to the shell with UEFI because it has
-significant dependencies on the BIOS firmware standard, but it is fairly
-straightforward to allow the processor to reach the kernel entry point on UEFI
-(before panicking as it tries to access the firmware.) Using grub, a UEFI
-firmware load such as OVMF, and QEMU, show using gdb that you can reach the
-kernel entry point. What did you have to change to get this working? (You may
-use the 64-bit architecture qemu for this to avoid having to compile OVMF
-32-bit.)
+6. Continue tracing. You can use breakpoints to skip over things. Look for where `eip` is set to `0x100000`. What happens to the stack as a result of that call? What would happen if we used a jump instead of a call?

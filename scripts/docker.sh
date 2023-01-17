@@ -48,6 +48,6 @@ elif [[ $ATTACH == true ]]; then
     docker exec -it buzz ash 
 else
     echo "Starting Buzz OS Container"
-    docker run --rm -it --name="buzz" -v "${ROOT_DIR}/":/buzz -w="/buzz" buzz-os
+    docker run --rm -it --name="buzz" -v "${ROOT_DIR}/":/buzz -w="/buzz" jvkdouk/buzz-os
 fi
 

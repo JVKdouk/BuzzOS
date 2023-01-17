@@ -118,9 +118,7 @@ impl DescriptorFlags {
 }
 
 pub fn setup_gdt() {
-    println!("[GDT] Segment Selector 1: {:X}", KERNEL_CODE_SEGMENT);
     GLOBAL_GDT.refresh();
-
     let cs_selector = GLOBAL_GDT.get_selector(1);
     load_cs(cs_selector);
 

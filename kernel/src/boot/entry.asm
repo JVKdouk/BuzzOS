@@ -12,53 +12,19 @@ bits 32
 entry:
     mov esp, stack_top
 
-    ; Check if CPUID is supported, this provides access to CPU information
-    call check_cpuid
-
     lidt [zero_idt]
 
     ; We are dealing with a 2-level paging, so 2 pages are necessary.
     call set_up_page_tables
     call enable_paging
 
-    jmp kernel_start
+    ; Finally, time to get Rusty
+    extern _start
+    mov eax, _start
+    jmp _start
 
     ; If the above instruction fails, we halt the processor.
     hlt
-
-; To check CPUID, we must interact with the the EFLAGS register. pushfd pushes the current value of
-; EFLAGS to the stack. We then pop that value from the stack into eax, copy it to ecx and flip the 22nd
-; bit. If the this bit can flipped, then CPUID is supported. Finally, we restore EFLAGS
-; More information here: https://en.wikipedia.org/wiki/CPUID
-check_cpuid:
-    pushfd
-    pop eax
-
-    ; Copy EFLAGS to ECX
-    mov ecx, eax
-
-    ; Flip the ID bit
-    xor eax, 1 << 21
-
-    ; Save the new EFLAGS
-    push eax
-    popfd
-
-    ; Copy the EFLAGS back to EAX
-    pushfd
-    pop eax
-
-    ; Restore EFLAGS to the previous version (unflipped ID bit)
-    push ecx
-    popfd
-
-    ; Compare EAX and ECX. If EAX = ECX, they were not flipped
-    cmp eax, ecx
-    je .no_cpuid
-    ret
-.no_cpuid:
-    mov al, "1"
-    jmp error
 
 ; PML4 -> PDP -> PD -> PT -> Page
 set_up_page_tables:
@@ -82,9 +48,6 @@ set_up_page_tables:
 
     ret
 
-; Kata OS
-; Joao Victor Cardoso Kdouk
-
 ; With page table, we are now ready to enable long mode in our process. This involves setting
 ; CR3 to the address of PML4 (base of the process's page-mapped level 4).
 enable_paging:
@@ -103,19 +66,6 @@ enable_paging:
     mov cr0, eax    ; Update CR0
 
     ret
-
-kernel_start:
-    ; Finally, time to get Rusty
-    extern _start
-    call _start
-
-; Error handler
-error:
-    mov dword [0xb8000], 0x4f524f45
-    mov dword [0xb8004], 0x4f3a4f52
-    mov dword [0xb8008], 0x4f204f20
-    mov byte  [0xb800a], al
-    hlt
 
 ; GDTR Setup
 

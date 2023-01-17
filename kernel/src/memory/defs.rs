@@ -21,7 +21,7 @@ pub const GDT_RING3: u8 = 0x60;
 pub const GDT_TYPE_S: u8 = 0x10;
 pub const GDT_TYPE_P: u8 = 0x80;
 
-pub const PAGE_SIZE: u16 = 4096;
+pub const PAGE_SIZE: usize = 4096;
 
 pub const EXTENDED_MEMORY: usize = 0x100000;
 pub const PHYSICAL_TOP: usize = 0xE000000;
@@ -29,10 +29,13 @@ pub const DEVICE_SPACE: usize = 0xFE000000;
 pub const KERNEL_BASE: usize = 0x80000000;
 pub const KERNEL_LINK: usize = (KERNEL_BASE + EXTENDED_MEMORY);
 
-pub const PTE_P: u32 = 0x001;
-pub const PTE_W: u32 = 0x002;
-pub const PTE_U: u32 = 0x004;
-pub const PTE_PS: u32 = 0x080;
+pub const PAGE_DIR_SHIFT: usize = 22;
+pub const PAGE_TABLE_SHIFT: usize = 12;
+
+pub const PTE_P: usize = 0x001;
+pub const PTE_W: usize = 0x002;
+pub const PTE_U: usize = 0x004;
+pub const PTE_PS: usize = 0x080;
 
 #[derive(Debug, Clone)]
 pub struct GlobalDescriptorTable {
@@ -52,7 +55,7 @@ pub struct MemoryLayoutEntry {
     pub virt: *const usize, // Start of the virtual address
     pub phys_start: usize,  // Start of the physical address
     pub phys_end: usize,    // End of the physical address
-    pub perm: u32,          // Permission flags
+    pub perm: usize,        // Permission flags
 }
 
 bitflags! {
