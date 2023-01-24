@@ -123,6 +123,20 @@ pub unsafe fn inw(port: u16) -> u32 {
     value
 }
 
+#[inline]
+pub fn stosb(address: usize, value: u8, length: usize) {
+    unsafe {
+        asm!(
+            "cld; \
+            rep stosb;",
+            in("al") value,
+            in("edi") address,
+            in("ecx") length,
+            options(nostack, preserves_flags)
+        );
+    }
+}
+
 /// Cause a breakpoint exception by invoking the `int3` instruction.
 #[inline]
 pub fn int3() {

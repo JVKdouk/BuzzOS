@@ -1,18 +1,26 @@
 OUTPUT_FORMAT("elf32-i386", "elf32-i386", "elf32-i386")
 OUTPUT_ARCH(i386)
-ENTRY(entry)
+ENTRY(kernel_start)
 
 SECTIONS {
-	. = 0x100000;
+	. = 0x80100000;
 
 	.text : AT(0x100000) {
 		*(.text .stub .text.* .gnu.linkonce.t.*)
+	}
+
+	.interp : {
+		*(.interp)
 	}
 
 	PROVIDE(etext = .);	/* Define the 'etext' symbol to this value */
 
 	.rodata : {
 		*(.rodata .rodata.* .gnu.linkonce.r.*)
+	}
+
+	.data.rel.ro : {
+		*(.data.rel.ro.local*) *(.data.rel.ro .data.rel.ro.*)
 	}
 
 	/* Include debugging information in kernel memory */
@@ -35,17 +43,33 @@ SECTIONS {
 	PROVIDE(data = .);
 
 	/* The data segment */
-	.data : {
+	.data : AT(ADDR(.data) - 0x80000000) {
     *(.data)
+	}
+
+	.dynamic : {
+		*(.dynamic)
+	}
+
+	.static : {
+		*(.static)
 	}
 
 	PROVIDE(edata = .);
 
-	.bss : {
+	.bss : AT(ADDR(.bss) - 0x80000000) {
 		*(.bss)
 	}
 
-	PROVIDE(end = .);
+	.absolute : {
+		*(.absolute)
+	}
+
+	.undefined : {
+		*(.undefined)
+	}
+
+	PROVIDE(KERNEL_END = .);
 
 	/DISCARD/ : {
 		*(.eh_frame .note.GNU-stack)

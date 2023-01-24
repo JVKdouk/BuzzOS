@@ -70,7 +70,7 @@ script = [
     "rm build/boot.bin",
     
     # Start OS
-    "qemu-system-i386 -nographic -drive file=build/buzz.img,index=0,media=disk,format=raw -no-shutdown -m 512",
+    "qemu-system-i386 -nographic -drive file=build/buzz.img,index=0,media=disk,format=raw -no-shutdown -no-reboot -m 512",
 ]
 
 # Build bootloader asm files

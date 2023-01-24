@@ -122,5 +122,5 @@ pub fn setup_gdt() {
     let cs_selector = GLOBAL_GDT.get_selector(1);
     load_cs(cs_selector);
 
-    println!("[INIT] Global Descriptor Table Initialized ")
+    println!("[KERNEL] Global Descriptor Table Initialized ")
 }

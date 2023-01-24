@@ -1,5 +1,9 @@
 use bitflags::bitflags;
 
+use crate::{pgroundup, print, println};
+
+use super::defs::{MemoryRegion, Page};
+
 // Number of entries in a page (Used for PML4, PDP, PD, and PT)
 pub const PAGE_TABLE_ENTRY_COUNT: usize = 512;
 
@@ -41,3 +45,28 @@ pub struct PageTable {
 pub struct PageDirectory {
     entries: [PageTableEntry; PAGE_TABLE_ENTRY_COUNT],
 }
+
+impl MemoryRegion {
+    pub fn new(start: &u8, end: usize) -> Self {
+        MemoryRegion {
+            start: pgroundup!(start as *const u8 as usize) as *const u8,
+            index: 0,
+            end,
+        }
+    }
+
+    pub fn next(&mut self) -> Result<Page, &'static str> {
+        if (self.start as usize + 4096 > self.end) {
+            return Err("[ERR] Failure to Allocate Page");
+        }
+
+        let address_index_offset = (self.index * 4096) as isize;
+        let address = unsafe { self.start.offset(address_index_offset) as *const usize };
+        self.index += 1;
+
+        Ok(Page { address })
+    }
+}
+
+unsafe impl Send for MemoryRegion {}
+unsafe impl Send for Page {}

@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![allow(unused)]
 #![feature(mixed_integer_ops)]
 #![feature(abi_x86_interrupt)]
 #![feature(const_mut_refs)]
@@ -22,16 +21,17 @@ use core::panic::PanicInfo;
 // never return
 #[no_mangle]
 pub unsafe extern "C" fn _start() -> ! {
-    /// Initialize debugging method (VGA or Console)
+    // Initialize debugging method (VGA or Console)
     devices::debug::debug_init();
     misc::logo::print_logo();
 
-    /// Setup Segmentation and Virtual Memory
+    // Setup Segmentation and Virtual Memory
     memory::vm::setup_vm();
     memory::gdt::setup_gdt();
 
-    /// Setup Interrupts
+    // Setup Interrupts
     interrupts::idt::setup_idt();
+
     loop {}
 }
 

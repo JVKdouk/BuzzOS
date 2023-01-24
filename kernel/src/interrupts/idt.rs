@@ -134,5 +134,5 @@ lazy_static! {
 
 pub fn setup_idt() {
     GLOBAL_IDT.load();
-    println!("[INIT] Interrupt Table Initialized");
+    println!("[KERNEL] Interrupt Table Initialized");
 }
