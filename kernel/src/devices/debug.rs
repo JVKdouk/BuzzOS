@@ -18,7 +18,7 @@ macro_rules! println {
 }
 
 pub fn debug_init() {
-    uart::uart_init();
+    uart::uart_init().expect("[ERR] Failed to Setup UART");
 }
 
 // Switches between printing methods

@@ -1,14 +1,8 @@
 use core::arch::asm;
 
 use crate::{
-    println,
-    {
-        interrupts::defs::InterruptDescriptorTablePointer,
-        memory::defs::GlobalDescriptorTablePointer,
-    },
+    interrupts::defs::InterruptDescriptorTablePointer, memory::defs::GlobalDescriptorTablePointer,
 };
-
-use super::defs::*;
 
 // ******** Control Registers ********
 

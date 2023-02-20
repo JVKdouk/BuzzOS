@@ -29,3 +29,5 @@
 %define ELF_PHOFF_OFFSET     4
 %define ELF_PH_SIZE          32
 %define ELF_MAGIC            0x464C457F
+
+%define E820_MAGIC_NUMBER    0x0534d4150

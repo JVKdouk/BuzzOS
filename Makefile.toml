@@ -54,7 +54,6 @@ script = [
     
     # Link Kernel binaries
     "ld -n -o build/kernel.elf -T ${KERNEL_FILES}",
-    "objdump -S -j .text build/kernel.elf > build/kernel.asm", # OBJDUMP
     "rm build/kernel.a build/entry.o"
 ]
 

@@ -1,7 +1,56 @@
 use bitflags::bitflags;
 
-/// GDT Definitions
+use crate::structures::static_linked_list::StaticLinkedListNode;
 
+/// Macros
+
+/// Perform page rounding up, to the next page boundary
+#[macro_export]
+macro_rules! ROUND_UP {
+    ($val:expr, $align:expr) => {
+        ($val + $align - 1) & !($align - 1)
+    };
+}
+
+/// Perform page rounding down, to the previous page boundary
+#[macro_export]
+macro_rules! ROUND_DOWN {
+    ($val:expr, $align:expr) => {
+        $val & !($align - 1)
+    };
+}
+
+/// Convert memory address from virtual (above KERNEL_BASE) to physical (below KERNEL_BASE)
+#[macro_export]
+macro_rules! V2P {
+    ($n:expr) => {
+        ($n) - KERNEL_BASE
+    };
+}
+
+/// Convert memory address from physical (below KERNEL_BASE) to virtual (above KERNEL_BASE)
+#[macro_export]
+macro_rules! P2V {
+    ($n:expr) => {
+        ($n) + KERNEL_BASE
+    };
+}
+
+#[macro_export]
+macro_rules! PAGE_TABLE_INDEX {
+    ($n:expr) => {
+        ($n >> PAGE_TABLE_SHIFT) & 0x3FF
+    };
+}
+
+#[macro_export]
+macro_rules! PAGE_DIR_INDEX {
+    ($n:expr) => {
+        ($n >> PAGE_DIR_SHIFT) & 0x3FF
+    };
+}
+
+/// GDT Definitions
 pub const N_DESCRIPTORS: usize = 6;
 
 pub const GDT_FLAG_L: u8 = 0x2;
@@ -19,12 +68,11 @@ pub const GDT_TYPE_S: u8 = 0x10;
 pub const GDT_TYPE_P: u8 = 0x80;
 
 /// VM Definitions
-
 pub const PAGE_SIZE: usize = 4096;
 
 pub const EXTENDED_MEMORY: usize = 0x100000;
-pub const PHYSICAL_TOP: usize = 0xE000000;
 pub const DEVICE_SPACE: usize = 0xFE000000;
+pub const PHYSICAL_DEVICE_SPACE: usize = V2P!(DEVICE_SPACE);
 pub const KERNEL_BASE: usize = 0x80000000;
 pub const KERNEL_LINK: usize = KERNEL_BASE + EXTENDED_MEMORY;
 
@@ -35,6 +83,14 @@ pub const PTE_P: usize = 0x001;
 pub const PTE_W: usize = 0x002;
 pub const PTE_U: usize = 0x004;
 pub const PTE_PS: usize = 0x080;
+
+/// Heap Definitions
+pub const HEAP_PAGES: usize = 25;
+pub const STACK_PAGES: usize = 4;
+
+pub struct LinkedListAllocator {
+    pub head: StaticLinkedListNode,
+}
 
 #[derive(Debug, Clone)]
 pub struct GlobalDescriptorTable {
@@ -65,7 +121,7 @@ pub struct Page {
 
 #[derive(Debug)]
 pub struct MemoryRegion {
-    pub start: *const u8,
+    pub start: usize,
     pub index: usize,
     pub end: usize,
 }
@@ -102,49 +158,3 @@ pub const KERNEL_CODE_SEGMENT: u64 = DescriptorFlags::KERNEL_CODE32.bits();
 pub const KERNEL_DATA_SEGMENT: u64 = DescriptorFlags::KERNEL_DATA.bits();
 pub const USER_CODE_SEGMENT: u64 = DescriptorFlags::USER_CODE64.bits();
 pub const USER_DATA_SEGMENT: u64 = DescriptorFlags::USER_DATA.bits();
-
-/// Macros
-
-#[macro_export]
-macro_rules! pgroundup {
-    ($n:expr) => {
-        $n + (4096 - ($n % 4096))
-    };
-}
-
-#[macro_export]
-macro_rules! pgrounddown {
-    ($n:expr) => {
-        $n - ($n % 4096)
-    };
-}
-
-/// Convert memory address from virtual (above KERNEL_BASE) to physical (below KERNEL_BASE)
-#[macro_export]
-macro_rules! V2P {
-    ($n:expr) => {
-        ($n) - KERNEL_BASE
-    };
-}
-
-/// Convert memory address from physical (below KERNEL_BASE) to virtual (above KERNEL_BASE)
-#[macro_export]
-macro_rules! P2V {
-    ($n:expr) => {
-        ($n) + KERNEL_BASE
-    };
-}
-
-#[macro_export]
-macro_rules! PAGE_TABLE_INDEX {
-    ($n:expr) => {
-        ($n >> PAGE_TABLE_SHIFT) & 0x3FF
-    };
-}
-
-#[macro_export]
-macro_rules! PAGE_DIR_INDEX {
-    ($n:expr) => {
-        ($n >> PAGE_DIR_SHIFT) & 0x3FF
-    };
-}

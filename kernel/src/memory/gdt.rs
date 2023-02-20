@@ -3,7 +3,7 @@ use core::mem::size_of;
 use lazy_static::lazy_static;
 
 use crate::memory::defs::*;
-use crate::x86::defs::{LongSegmentDescriptor, PrivilegeLevel, ShortSegmentDescriptor};
+use crate::x86::defs::{LongSegmentDescriptor, ShortSegmentDescriptor};
 use crate::x86::helpers::load_cs;
 use crate::{println, x86::helpers::lgdt};
 
@@ -39,12 +39,12 @@ impl GlobalDescriptorTable {
         let descriptor = self.table[index as usize];
         let rpl = ((descriptor >> 45) & 0b11) as u16;
 
-        ((index << 3) | rpl)
+        (index << 3) | rpl
     }
 
     /// Append a short segment (non-System) to the GDT
     pub fn add_short_segment(&mut self, segment: ShortSegmentDescriptor) {
-        if (self.len + 1 > self.table.len()) {
+        if self.len + 1 > self.table.len() {
             panic!("GDT is out of space");
         }
 
@@ -53,7 +53,7 @@ impl GlobalDescriptorTable {
 
     /// Append a long segment (System) to the GDT
     pub fn add_long_segment(&mut self, segment: LongSegmentDescriptor) {
-        if (self.len + 2 > self.table.len()) {
+        if self.len + 2 > self.table.len() {
             panic!("GDT is out of space");
         }
 

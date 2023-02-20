@@ -3,7 +3,7 @@ build-std = ["core", "compiler_builtins", "alloc"]
 build-std-features = ["compiler-builtins-mem"]
 
 [build]
-rustflags = ["--emit", "asm", "-C", "llvm-args=-x86-asm-syntax=intel", "-C", "save-temps", "--emit=llvm-ir"]
+rustflags = ["--emit", "asm", "-C", "llvm-args=-x86-asm-syntax=intel", "-C", "save-temps", "--emit=llvm-ir", "-C", "debuginfo=stabs"]
 target = "x86-target.json"
 
 [target.'cfg(target_os = "none")']
