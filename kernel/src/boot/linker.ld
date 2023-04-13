@@ -6,7 +6,7 @@ SECTIONS {
 	. = 0x80100000;
 
 	.text : AT(0x100000) {
-		*(.text .stub .text.* .gnu.linkonce.t.*)
+		*(.text.* .text .stub .gnu.linkonce.t.*)
 	}
 
 	.interp : {
@@ -23,24 +23,9 @@ SECTIONS {
 		*(.data.rel.ro.local*) *(.data.rel.ro .data.rel.ro.*)
 	}
 
-	/* Include debugging information in kernel memory */
-	.stab : {
-		PROVIDE(__STAB_BEGIN__ = .);
-		*(.stab);
-		PROVIDE(__STAB_END__ = .);
-		BYTE(0)
-	}
-
-	.stabstr : {
-		PROVIDE(__STABSTR_BEGIN__ = .);
-		*(.stabstr);
-		PROVIDE(__STABSTR_END__ = .);
-		BYTE(0)
-	}
-
 	. = ALIGN(0x1000);
 
-	PROVIDE(data = .);
+	PROVIDE(KERNEL_DATA = .);
 
 	/* The data segment */
 	.data : AT(ADDR(.data) - 0x80000000) {
@@ -55,9 +40,26 @@ SECTIONS {
 		*(.static)
 	}
 
+	/* Include debugging information in kernel memory */
+	.stab : {
+		PROVIDE(__STAB_BEGIN__ = .);
+		*(.stab);
+		PROVIDE(__STAB_END__ = .);
+		BYTE(0)		/* Force the linker to allocate space
+				   for this section */
+	}
+
+	.stabstr : {
+		PROVIDE(__STABSTR_BEGIN__ = .);
+		*(.stabstr);
+		PROVIDE(__STABSTR_END__ = .);
+		BYTE(0)		/* Force the linker to allocate space
+				   for this section */
+	}
+
 	PROVIDE(edata = .);
 
-	.bss : AT(ADDR(.bss) - 0x80000000) {
+	.bss :  {
 		*(.bss)
 	}
 

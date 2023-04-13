@@ -10,8 +10,12 @@ pub mod devices;
 pub mod interrupts;
 pub mod memory;
 pub mod misc;
+pub mod scheduler;
+pub mod structures;
 pub mod threading;
 pub mod x86;
+
+extern crate alloc;
 
 // Interface definition of panic in Rust. Core represents the core library
 use core::panic::PanicInfo;
@@ -28,9 +32,14 @@ pub unsafe extern "C" fn _start() -> ! {
     // Setup Segmentation and Virtual Memory
     memory::vm::setup_vm();
     memory::gdt::setup_gdt();
+    memory::heap::setup_heap();
 
     // Setup Interrupts
     interrupts::idt::setup_idt();
+
+    // Scheduler
+    scheduler::process::spawn_init_process();
+    scheduler::scheduler::setup_scheduler();
 
     loop {}
 }
@@ -40,4 +49,9 @@ pub unsafe extern "C" fn _start() -> ! {
 fn panic(_info: &PanicInfo) -> ! {
     print!("{}", _info);
     loop {}
+}
+
+#[alloc_error_handler]
+fn alloc_panic(layout: alloc::alloc::Layout) -> ! {
+    panic!("allocation error: {:?}", layout)
 }

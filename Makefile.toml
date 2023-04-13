@@ -5,9 +5,10 @@
 
 [env]
 KERNEL_FILES = """
-kernel/src/boot/linker.ld
-build/entry.o
-build/kernel.a
+entry.o
+switch.o
+kernel.o
+trap.o
 """
 BOOTLOADER_FILES = """
 bootloader/src/linker.ld
@@ -37,6 +38,7 @@ script = [
     "ld -e _start_16 -Ttext=0x7C00 -b elf32-i386 -m elf_i386 --oformat binary -o ../build/boot.bin ../build/boot.elf",
     "ld -e _start_16 -Ttext=0x7C00 -b elf32-i386 -m elf_i386 --oformat elf32-i386 -o ../build/bootloader.elf ../build/boot.elf",
     "objdump -S ../build/bootloader.elf > ../build/boot.asm",
+    "objdump -S ../build/kernel.elf > ../build/kernel.asm",
     "rm ../build/boot.elf",
 ]
 
@@ -49,13 +51,17 @@ script = [
 
     # Compile Kernel and move to build Kernel
     "nasm -f elf32 src/boot/entry.asm -o ../build/entry.o",
+    "nasm -f elf32 src/asm/switch.asm -o ../build/switch.o",
+    "nasm -f elf32 src/asm/trap.asm -o ../build/trap.o",
+    "nasm -f bin src/asm/init.asm -o ../build/init",
+
     "RUSTFLAGS=-g cargo build --target x86-target.json",
-    "cd ..; cp target/x86-target/debug/libbuzz_os_kernel.a build/kernel.a",
+    "cd ..; cp target/x86-target/debug/libbuzz_os_kernel.a build/kernel.o",
     
     # Link Kernel binaries
-    "ld -n -o build/kernel.elf -T ${KERNEL_FILES}",
-    "objdump -S -j .text build/kernel.elf > build/kernel.asm", # OBJDUMP
-    "rm build/kernel.a build/entry.o"
+    "cd build",
+    "ld -n -T ../kernel/src/boot/linker.ld -o kernel.elf ${KERNEL_FILES} -b binary init",
+    "rm kernel.o entry.o"
 ]
 
 # Build bootloader asm files

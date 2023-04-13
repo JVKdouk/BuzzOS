@@ -4,9 +4,7 @@ use spin::Mutex;
 
 use super::uart::uart_put_char;
 
-pub struct Console {
-    panicked: bool,
-}
+pub struct Console;
 
 impl fmt::Write for Console {
     fn write_str(&mut self, s: &str) -> fmt::Result {
@@ -17,7 +15,7 @@ impl fmt::Write for Console {
 
 impl Console {
     fn write_char(&self, c: char) {
-        uart_put_char(c);
+        uart_put_char(c).expect("[ERROR] Failed to stream char");
     }
 
     pub fn write_string(&self, text: &str) {
@@ -28,5 +26,5 @@ impl Console {
 }
 
 lazy_static! {
-    pub static ref CONSOLE: Mutex<Console> = Mutex::new(Console { panicked: false });
+    pub static ref CONSOLE: Mutex<Console> = Mutex::new(Console {});
 }

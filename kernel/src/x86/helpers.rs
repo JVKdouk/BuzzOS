@@ -1,14 +1,9 @@
 use core::arch::asm;
 
 use crate::{
+    interrupts::defs::InterruptDescriptorTablePointer, memory::defs::GlobalDescriptorTablePointer,
     println,
-    {
-        interrupts::defs::InterruptDescriptorTablePointer,
-        memory::defs::GlobalDescriptorTablePointer,
-    },
 };
-
-use super::defs::*;
 
 // ******** Control Registers ********
 
@@ -16,6 +11,16 @@ use super::defs::*;
 pub fn lcr3(page_dir: usize) {
     unsafe {
         asm!("mov cr3, {}", in(reg) page_dir, options(nostack, preserves_flags));
+    }
+}
+
+/// Cause a breakpoint exception by invoking the `int3` instruction.
+#[inline]
+pub fn read_cr2() -> usize {
+    unsafe {
+        let mut value = 0;
+        asm!("mov {}, cr2", out(reg) value, options(nomem, nostack));
+        value
     }
 }
 
@@ -49,6 +54,14 @@ pub unsafe fn lgdt(gdt: &GlobalDescriptorTablePointer) {
     unsafe {
         asm!("lgdt [{}]",
         in(reg) gdt, options(readonly, nostack, preserves_flags));
+    }
+}
+
+#[inline]
+pub fn ltr(segment: u16) {
+    unsafe {
+        asm!("ltr {0:x}",
+        in(reg) segment, options(att_syntax, nostack, nomem, preserves_flags));
     }
 }
 
