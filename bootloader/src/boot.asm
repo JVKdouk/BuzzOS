@@ -10,6 +10,9 @@ bits 16
 _start_16:
     ; Clear interrupts
     cli
+
+    mov ax, 0xe820
+    call do_e820
     
     ; Zero out segment registers
     xor ax, ax
@@ -46,6 +49,9 @@ prepare_protected_mode:
 
     ; Perform the jump to 32 bits
     jmp gdt32.code:start_32
+    hlt
+
+%include "src/e820.asm"
 
 bits 32
 start_32:
@@ -64,17 +70,15 @@ start_32:
     mov sp, 0x7C00
 
 prepare_load_kernel:
+    ; Perform the procedure of loading the Kernel. Kernel is stored as an ELF, so we need
+    ; to not only load it, but also decode it. The ELF stores important info regarding the
+    ; symbolic table.
     call load_kernel
 
     ; Jump to Kernel entry point in memory
     call ebx
     
-    ; This part is unreachable. In case it is reached, something went very wrong,
-    ; print fail and halt the processor.  
-    mov eax, 0x4f414f46
-    mov dword [0xb8000], eax
-    mov eax, 0x4f4c4f49
-    mov dword [0xb8004], eax
+    ; This part is unreachable. In case it is reached, something went very wrong.
     hlt
 
 %include "src/loader.asm"

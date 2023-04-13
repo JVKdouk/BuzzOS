@@ -1,74 +1,44 @@
-use core::mem::size_of;
 use lazy_static::lazy_static;
 use spin::Mutex;
 
-use super::defs::*;
-use crate::{misc::ds::LinkedList, println};
+use super::{
+    defs::*,
+    heap::IS_HEAP_ENABLED,
+    mem::{MEMORY_REGION, PHYSICAL_TOP},
+};
+use crate::{
+    memory::mem::memset, println, structures::heap_linked_list::HeapLinkedList, x86::helpers::lcr3,
+    P2V, PAGE_DIR_INDEX, PAGE_TABLE_INDEX, ROUND_DOWN, ROUND_UP, V2P,
+};
 
-// External start of the data section
 extern "C" {
-    #[no_mangle]
-    static data: *const u8;
-
-    #[no_mangle]
-    static edata: *const u8;
-
-    #[no_mangle]
-    static end: *const u8;
+    static KERNEL_DATA: u8;
 }
-
-macro_rules! pgroundup {
-    ($n:expr) => {
-        $n + (4096 - ($n % 4096))
-    };
-}
-
-macro_rules! pgrounddown {
-    ($n:expr) => {
-        $n - ($n % 4096)
-    };
-}
-
-/// Convert memory address from virtual (above KERNEL_BASE) to physical (below KERNEL_BASE)
-macro_rules! V2P {
-    ($n:expr) => {
-        ($n) - KERNEL_BASE
-    };
-}
-
-/// Convert memory address from physical (below KERNEL_BASE) to virtual (above KERNEL_BASE)
-macro_rules! P2V {
-    ($n:expr) => {
-        ($n) + KERNEL_BASE
-    };
-}
-
-unsafe impl Send for MemoryLayoutEntry {}
 
 lazy_static! {
     static ref KERNEL_MEMORY_LAYOUT: Mutex<[MemoryLayoutEntry; 4]> = Mutex::new([
-    /// I/O Address Space
+    // I/O Address Space
     MemoryLayoutEntry {
         virt: KERNEL_BASE as *const usize,
         phys_start: 0,
         phys_end: EXTENDED_MEMORY,
         perm: PTE_W,
     },
-    /// Kernel Text + Read Only Data
+    // Kernel Text + Read Only Data
     MemoryLayoutEntry {
         virt: KERNEL_LINK as *const usize,
         phys_start: V2P!(KERNEL_LINK),
-        phys_end: unsafe { V2P!(data as usize) },
+        phys_end: unsafe { V2P!(&KERNEL_DATA as *const u8 as usize) },
         perm: 0,
     },
-    /// Kernel Data + Memory
+    // Kernel Data + Memory
     MemoryLayoutEntry {
-        virt: unsafe { data as *const usize },
-        phys_start: unsafe { V2P!(data as usize) },
-        phys_end: 0x0, // Filled dynamically as the top of the physical memory
+        virt: unsafe { &KERNEL_DATA as *const u8 as *const usize },
+        phys_start: unsafe { V2P!(&KERNEL_DATA as *const u8 as usize) },
+        phys_end: unsafe { *PHYSICAL_TOP.lock() },
         perm: PTE_W,
     },
-    /// Other Devices
+    // Other Devices
     MemoryLayoutEntry {
         virt: DEVICE_SPACE as *const usize,
         phys_start: DEVICE_SPACE,
@@ -78,87 +48,160 @@ lazy_static! {
 ]);
 }
 
-// pub static PAGE_LIST: Mutex<LinkedList<u32>> = Mutex::new(LinkedList::new());
+pub static KERNEL_PAGE_DIR: Mutex<Option<usize>> = Mutex::new(None);
 
-// fn setup_mem_pages(mem_segment: (u32, u32)) -> u32 {
-//     let (addr, size) = mem_segment;
-//     let mem_top = addr + size;
+lazy_static! {
+    pub static ref FREE_PAGE_LIST: Mutex<HeapLinkedList<Page>> = Mutex::new(HeapLinkedList::new());
+}
 
-//     let rounded_base = pgroundup!(addr);
-//     let rounder_top = pgrounddown!(mem_top);
-//     let rounded_size = rounder_top - rounded_base;
+/// Perform the allocation of pages. Gives priority to pages in the free list. If there
+/// are no pages in the free list, then allocates from the static memory region. If no
+/// pages are avaialable, raise an exception.
+pub fn allocate_page() -> Result<Page, &'static str> {
+    if *IS_HEAP_ENABLED.lock() == true {
+        let page = FREE_PAGE_LIST.lock().pop();
 
-//     // let n_pages = (rounded_size / 4096) as u32;
-//     let n_pages = 5 as u32;
-
-//     let mut page_list = PAGE_LIST.lock();
-
-//     for i in 0..(n_pages) {
-//         (*page_list).push(rounded_base + i * 4096);
-//     }
-
-//     // println!("{:X}", (*page_list).pop().unwrap());
-//     // println!("{:X}", (*page_list).pop().unwrap());
-
-//     return n_pages;
-// }
-
-fn zero_page(page_addr: u32) {
-    unsafe {
-        let page_addr = page_addr as *mut u32;
-        for i in 0..(PAGE_SIZE) {
-            (*page_addr.offset(i as isize)) = 0;
+        match page {
+            Some(page) => return Ok(page),
+            _ => {}
         }
     }
+
+    return MEMORY_REGION.lock().next(1);
 }
 
-// fn free_page(page_addr: u32) {
-//     if (page_addr % PAGE_SIZE || v < end)
+/// Add pages to the Free List. The Free List can only be used if Heap is enabled.
+pub fn deallocate_page(page: Page) {
+    assert_eq!(
+        ROUND_UP!(page.address as usize, 4096),
+        page.address as usize
+    );
 
-//     let mut page_list = PAGE_LIST.lock();
-//     zero_page(page_addr);
+    if *IS_HEAP_ENABLED.lock() == false {
+        panic!("[ERROR] Cannot dealocate without heap");
+    }
 
-//     (*page_list).push(page_addr);
-// }
+    FREE_PAGE_LIST.lock().push(page);
+}
 
-// fn get_free_page() -> Option<u32> {
-//     let mut page_list = PAGE_LIST.lock();
-//     return (*page_list).pop();
-// }
+/// Walk Page Directory uses the provided virtual memory address (virtual_address) to index
+/// the page directory, and then the page table. If the page table is not present, allocates
+/// a new page to act as the page table.
+fn walk_page_dir(
+    page_dir: Page,
+    virtual_address: usize,
+    should_allocate: bool,
+) -> Result<*mut usize, &'static str> {
+    let page_directory_offset = PAGE_DIR_INDEX!(virtual_address as isize);
+    let page_directory_entry = unsafe { *page_dir.address.offset(page_directory_offset) as usize };
+    let is_entry_present = (page_directory_entry & PTE_P) > 0;
 
-// // Multiboot Memory Layout fields can be found at
-// // https://www.gnu.org/software/grub/manual/multiboot/html_node/multiboot_002eh.html
-// // Function responsible for indexing the memory layout and extracting the biggest memory
-// // segment.
-// fn setup_mem_layout(mem_pointer: usize) -> (u32, u32) {
-//     let boot_info_block = unsafe { multiboot2::load(mem_pointer) };
-//     let mem_tag = boot_info_block
-//         .memory_map_tag()
-//         .expect("Memory map tag not found");
+    let mut page_table: Page = Page {
+        address: 0 as *const usize,
+    };
 
-//     let mut memory_segment: (u32, u32) = (0, 0);
-//     for memory_area in mem_tag.memory_areas() {
-//         let (addr, size) = memory_segment;
+    // If entry is already present, set page table simply as the address pointed by the entry
+    if is_entry_present == true {
+        page_table.address = P2V!(page_directory_entry & !0xFFF) as *const usize;
+    } else {
+        // Since page was not found, we need to allocate
+        if !should_allocate {
+            return Err("Page walk failed: Not allowed to allocate");
+        }
 
-//         if (memory_area.length > size) {
-//             memory_segment = (memory_area.base_addr, memory_area.length);
-//         }
-//     }
+        page_table = allocate_page()?;
+        memset(page_table.address as usize, 0, PAGE_SIZE);
 
-//     return memory_segment;
-// }
+        unsafe {
+            *(page_dir.address.offset(page_directory_offset) as *mut usize) =
+                V2P!(page_table.address as usize) | PTE_P | PTE_W | PTE_U;
+        }
+    }
 
+    let page_table_offset = PAGE_TABLE_INDEX!(virtual_address as isize);
+    let page_table_entry = unsafe { (page_table.address as *mut usize).offset(page_table_offset) };
+
+    // Return the page entry that was found
+    return Ok(page_table_entry);
+}
+
+/// Perform page mapping of a range into the provided page directory.
+/// Creates all the necessary tables to accomodate pages from start_address
+/// to end_address, starting for virtual_address.
+pub fn map_pages(
+    page_dir: Page,
+    virtual_address: usize,
+    size: usize,
+    mut physical_address: usize,
+    perm: usize,
+) -> Result<(), &'static str> {
+    let mut start_address = ROUND_DOWN!(virtual_address, 4096) as *mut u8;
+    let end_address =
+        ROUND_DOWN!(virtual_address.wrapping_add(size).wrapping_sub(1), 4096) as *mut u8;
+
+    loop {
+        let page_table_entry = walk_page_dir(page_dir, start_address as usize, true)?;
+        let is_page_entry_present = unsafe { *page_table_entry & PTE_P } > 0;
+
+        // If the page is already mapped, then something went wrong
+        if is_page_entry_present {
+            return Err("[FATAL] Page was remapped");
+        }
+
+        // Map the page entry to the physical address
+        unsafe { *page_table_entry = physical_address | perm | PTE_P }
+
+        if start_address >= end_address {
+            break;
+        }
+
+        start_address = unsafe { start_address.offset(PAGE_SIZE as isize) };
+        physical_address += PAGE_SIZE;
+    }
+
+    return Ok(());
+}
+
+/// Maps each one of the entries of KERNEL_MEMORY_LAYOUT into a new page directory,
+/// later switching CR3 to this new page directory.
+pub fn setup_kernel_page_tables() -> Result<Page, &'static str> {
+    let page_dir: Page = allocate_page()?;
+    let physical_top = unsafe { *PHYSICAL_TOP.lock() };
+
+    memset(page_dir.address as usize, 0, PAGE_SIZE);
+
+    if P2V!(physical_top) > DEVICE_SPACE {
+        panic!("PHYSTOP is too high");
+    }
+
+    for entry in KERNEL_MEMORY_LAYOUT.lock().iter() {
+        map_pages(
+            page_dir,
+            entry.virt as usize,
+            entry.phys_end.wrapping_sub(entry.phys_start),
+            entry.phys_start,
+            entry.perm,
+        )?;
+    }
+
+    let mut kernel_page_dir = KERNEL_PAGE_DIR.lock();
+    *kernel_page_dir = Some(page_dir.address as usize);
+
+    // Switch to new page directory
+    lcr3(V2P!(kernel_page_dir.unwrap()));
+
+    return Ok(page_dir);
+}
+
+/// When the Kernel starts, it has only two pages defined. One page maps the physical
+/// address and the other maps all addresses above KERNEL_BASE to the physical memory.
+/// Here, we need to map the Kernel's memory layout to the one defined in KERNEL_MEMORY_LAYOUT,
+/// ensuring access to the entirety of the physical space.
 pub fn setup_vm() {
-    println!("[INIT] {:p}", unsafe { end });
-    println!("[INIT] Mapping Memory");
-
-    // let mem_segment = setup_mem_layout(mem_layout_pointer);
-    // println!(
-    //     "[INIT] Memory Segment From 0x{:X} to 0x{:X}",
-    //     mem_segment.0,
-    //     mem_segment.0 + mem_segment.1
-    // );
-
-    // let n_pages = setup_mem_pages(mem_segment);
-    println!("[INIT] Mapped {} Pages", 0);
+    println!("[KERNEL] Mapping Memory");
+    setup_kernel_page_tables().expect("[ERR] Failed to Setup Virtual Memory");
+    println!("[KERNEL] Virtual Memory Initialized");
 }
+
+unsafe impl Send for MemoryLayoutEntry {}
+unsafe impl Send for Page {}

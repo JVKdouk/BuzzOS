@@ -5,17 +5,16 @@
 
 [env]
 KERNEL_FILES = """
-kernel/src/boot/linker.ld
-build/entry.o
-build/kernel.a
+entry.o
+switch.o
+kernel.o
+trap.o
 """
 BOOTLOADER_FILES = """
 bootloader/src/linker.ld
 build/boot.o
 build/bootloader.a
 """
-DEBUG_MODE = "vga"
-SHOW_INTERRUPTS = true
 
 # Ensure everything is in place and clear build folder
 [tasks.clean]
@@ -30,17 +29,17 @@ script = [
 dependencies = ["clean"]
 workspace = false
 script = [
-    "export KERNEL_SECTORS=$(./scripts/get_size.sh)",
     "cd bootloader",
     
     # Compile Bootloader binaries
-    "nasm -dKERNEL_SIZE=$KERNEL_SECTORS -f elf32 src/boot.asm -o ../build/boot.elf",
+    "nasm -f elf32 src/boot.asm -o ../build/boot.elf",
     
     # Set ELF at origin address
     "ld -e _start_16 -Ttext=0x7C00 -b elf32-i386 -m elf_i386 --oformat binary -o ../build/boot.bin ../build/boot.elf",
     "ld -e _start_16 -Ttext=0x7C00 -b elf32-i386 -m elf_i386 --oformat elf32-i386 -o ../build/bootloader.elf ../build/boot.elf",
-    # "rm ../build/boot.elf",
     "objdump -S ../build/bootloader.elf > ../build/boot.asm",
+    "objdump -S ../build/kernel.elf > ../build/kernel.asm",
+    "rm ../build/boot.elf",
 ]
 
 # Build Kernel
@@ -52,17 +51,17 @@ script = [
 
     # Compile Kernel and move to build Kernel
     "nasm -f elf32 src/boot/entry.asm -o ../build/entry.o",
-    "RUSTFLAGS=-g cargo build --target x86-target.json --features ${DEBUG_MODE}",
-    "cd ..",
-    "cp target/x86-target/debug/libbuzz_os_kernel.a build/kernel.a",
+    "nasm -f elf32 src/asm/switch.asm -o ../build/switch.o",
+    "nasm -f elf32 src/asm/trap.asm -o ../build/trap.o",
+    "nasm -f bin src/asm/init.asm -o ../build/init",
+
+    "RUSTFLAGS=-g cargo build --target x86-target.json",
+    "cd ..; cp target/x86-target/debug/libbuzz_os_kernel.a build/kernel.o",
     
     # Link Kernel binaries
-    "ld -n -o build/kernel.elf -T ${KERNEL_FILES}",
-    # "objcopy -O binary build/kernel.elf build/kernel.bin",
-    # "objdump -S -j .text build/entry.o > build/kernel.asm", # OBJDUMP
-    "objdump -S -j .text build/kernel.elf > build/kernel.asm", # OBJDUMP
-    "objdump -t build/kernel.elf | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > build/kernel.sym", # STAB
-    # "rm build/long.o build/kernel.a build/entry.o"
+    "cd build",
+    "ld -n -T ../kernel/src/boot/linker.ld -o kernel.elf ${KERNEL_FILES} -b binary init",
+    "rm kernel.o entry.o"
 ]
 
 # Build bootloader asm files
@@ -74,11 +73,10 @@ script = [
     "dd if=/dev/zero of=build/buzz.img count=10000 status=none",
     "dd if=build/boot.bin of=build/buzz.img conv=notrunc status=none",
     "dd if=build/kernel.elf of=build/buzz.img seek=1 conv=notrunc status=none",
-    # "rm build/kernel.bin",
     "rm build/boot.bin",
     
     # Start OS
-    "scripts/build.sh",
+    "qemu-system-i386 -nographic -drive file=build/buzz.img,index=0,media=disk,format=raw -no-shutdown -no-reboot -m 512",
 ]
 
 # Build bootloader asm files
@@ -90,8 +88,7 @@ script = [
     "dd if=/dev/zero of=build/buzz.img count=10000 status=none",
     "dd if=build/boot.bin of=build/buzz.img conv=notrunc status=none",
     "dd if=build/kernel.elf of=build/buzz.img seek=1 conv=notrunc status=none",
-    # "rm build/kernel.bin",
-    # "rm build/boot.bin",
+    "rm build/boot.bin",
     
     # Start OS
     "qemu-system-i386 -s -S -drive file=build/buzz.img,index=0,media=disk,format=raw -no-reboot -no-shutdown -nographic -serial mon:stdio -m 512",

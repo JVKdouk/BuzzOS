@@ -1,17 +1,21 @@
 #![no_std]
 #![no_main]
-#![allow(unused)]
 #![feature(mixed_integer_ops)]
 #![feature(abi_x86_interrupt)]
 #![feature(const_mut_refs)]
+#![feature(alloc_error_handler)]
 #[macro_use]
 
 pub mod devices;
 pub mod interrupts;
 pub mod memory;
 pub mod misc;
+pub mod scheduler;
+pub mod structures;
 pub mod threading;
 pub mod x86;
+
+extern crate alloc;
 
 // Interface definition of panic in Rust. Core represents the core library
 use core::panic::PanicInfo;
@@ -21,18 +25,22 @@ use core::panic::PanicInfo;
 // never return
 #[no_mangle]
 pub unsafe extern "C" fn _start() -> ! {
-    /// Initialize debugging method (VGA or Console)
+    // Initialize debugging method (VGA or Console)
     devices::debug::debug_init();
-    devices::debug::_clear();
     misc::logo::print_logo();
 
-    /// Setup Segmentation and Virtual Memory
-    memory::gdt::setup_gdt();
+    // Setup Segmentation and Virtual Memory
     memory::vm::setup_vm();
+    memory::gdt::setup_gdt();
+    memory::heap::setup_heap();
 
-    /// Setup Interrupts
+    // Setup Interrupts
     interrupts::idt::setup_idt();
-    x86::helpers::int3();
+
+    // Scheduler
+    scheduler::process::spawn_init_process();
+    scheduler::scheduler::setup_scheduler();
+
     loop {}
 }
 
@@ -41,4 +49,9 @@ pub unsafe extern "C" fn _start() -> ! {
 fn panic(_info: &PanicInfo) -> ! {
     print!("{}", _info);
     loop {}
+}
+
+#[alloc_error_handler]
+fn alloc_panic(layout: alloc::alloc::Layout) -> ! {
+    panic!("allocation error: {:?}", layout)
 }

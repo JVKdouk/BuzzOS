@@ -110,9 +110,7 @@ impl IDT {
     // of bugs related to free before use.
     #[inline]
     pub fn load(&'static self) {
-        unsafe {
-            lidt(&self.pointer());
-        }
+        lidt(&self.pointer());
     }
 }
 
@@ -120,7 +118,7 @@ lazy_static! {
     static ref GLOBAL_IDT: IDT = {
         let mut global_idt = IDT::new();
 
-        /// Setup Handler
+        // Setup Handler
         global_idt.div_by_zero.set_handler_fn(div_by_zero_handler);
         global_idt.breakpoint.set_handler_fn(breakpoint_handler);
         global_idt.gen_protection_fault.set_handler_fn(gen_protection_fault);
@@ -134,5 +132,5 @@ lazy_static! {
 
 pub fn setup_idt() {
     GLOBAL_IDT.load();
-    println!("[INIT] Interrupt Table Initialized");
+    println!("[KERNEL] Interrupt Table Initialized");
 }

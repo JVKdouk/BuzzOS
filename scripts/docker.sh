@@ -3,7 +3,7 @@ function usage() {
     Usage: $0 [--attach] [--pull]
 
     Options:
-	(default): create Docker image "xv6" and attach
+	(default): create Docker image "BuzzOS" and attach
         --attach: attach to created Docker image (useful for GDB)
         --pull:	load latest Docker image from registry
 USAGE
@@ -48,6 +48,6 @@ elif [[ $ATTACH == true ]]; then
     docker exec -it buzz ash 
 else
     echo "Starting Buzz OS Container"
-    docker run --rm -it --name="buzz" -v "${ROOT_DIR}/":/buzz -w="/buzz" buzz-os
+    docker run --rm -it --name="buzz" -v "${ROOT_DIR}/":/buzz -w="/buzz" jvkdouk/buzz-os
 fi
 
