@@ -2,7 +2,7 @@ use core::arch::asm;
 
 use crate::{
     println,
-    scheduler::{process::TrapFrame, scheduler::SCHEDULER},
+    scheduler::{defs::process::TrapFrame, scheduler::SCHEDULER},
     x86::helpers::read_cr2,
 };
 

@@ -1,7 +1,10 @@
 use alloc::string::String;
 use spin::Mutex;
 
-use super::scheduler::PROCESS_LIST;
+use super::{
+    defs::process::{Context, Process, ProcessState, TrapFrame},
+    scheduler::PROCESS_LIST,
+};
 use crate::{
     interrupts::defs::InterruptStackFrame,
     memory::{
@@ -19,71 +22,6 @@ use crate::{
     },
     V2P,
 };
-
-#[derive(Debug, Copy, Clone)]
-pub enum ProcessState {
-    EMBRYO,
-    RUNNING,
-    READY,
-    STOPPED,
-    KILLED,
-}
-
-#[repr(C)]
-#[derive(Default, Debug, Copy, Clone)]
-pub struct TrapFrame {
-    pub edi: usize,
-    pub esi: usize,
-    pub ebp: usize,
-    pub _esp: usize, // Unused ESP
-    pub ebx: usize,
-    pub edx: usize,
-    pub ecx: usize,
-    pub eax: usize,
-
-    gs: u16,
-    unused_1: u16,
-    fs: u16,
-    unused_2: u16,
-    es: u16,
-    unused_3: u16,
-    ds: u16,
-    unused_4: u16,
-    pub trap_number: usize,
-
-    err: usize,
-    eip: usize,
-    cs: u16,
-    unused_5: u16,
-    eflags: usize,
-
-    esp: usize,
-    ss: u16,
-    unused_6: u16,
-}
-
-#[repr(C)]
-#[derive(Default, Debug, Clone)]
-pub struct Context {
-    edi: usize,
-    esi: usize,
-    ebx: usize,
-    ebp: usize,
-    pub eip: usize,
-}
-
-#[derive(Debug)]
-pub struct Process {
-    pub pid: usize,
-    pub pgdir: Option<*mut usize>,
-    pub state: ProcessState,
-    pub context: Option<*mut Context>,
-    pub trapframe: Option<*mut TrapFrame>,
-    kernel_stack: Option<*mut usize>,
-    mem_size: usize,
-    pub current_working_directory: String,
-    pub name: String,
-}
 
 impl Process {
     pub fn new(pid: usize) -> Self {

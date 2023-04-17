@@ -1,19 +1,13 @@
 use spin::Mutex;
 
-use core::arch::asm;
-
 use crate::{
-    println,
-    scheduler::process::{switch_user_virtual_memory, ProcessState},
-    structures::heap_linked_list::HeapLinkedList,
+    scheduler::process::switch_user_virtual_memory, structures::heap_linked_list::HeapLinkedList,
 };
 
-use super::process::{Context, Process, TrapFrame};
-
-pub struct Scheduler {
-    pub current_process: Option<Process>,
-    pub context: usize,
-}
+use super::defs::{
+    process::{Process, ProcessState, TrapFrame},
+    scheduler::Scheduler,
+};
 
 pub static mut PROCESS_LIST: Mutex<HeapLinkedList<Process>> = Mutex::new(HeapLinkedList::new());
 pub static mut SCHEDULER: Mutex<Scheduler> = Mutex::new(Scheduler::new());

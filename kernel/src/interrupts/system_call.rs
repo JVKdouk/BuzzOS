@@ -4,7 +4,7 @@ use lazy_static::lazy_static;
 use crate::{
     interrupts::defs::system_call::*,
     println,
-    scheduler::{process::TrapFrame, scheduler::SCHEDULER},
+    scheduler::{defs::process::TrapFrame, scheduler::SCHEDULER},
 };
 
 /// If a call to an undefined System Call happens, panic and exit.
