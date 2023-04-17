@@ -3,6 +3,7 @@ use spin::Mutex;
 
 use super::scheduler::PROCESS_LIST;
 use crate::{
+    interrupts::defs::InterruptStackFrame,
     memory::{
         defs::{
             Page, KERNEL_BASE, KERNEL_DATA_SEG_ENTRY, PAGE_SIZE, PTE_U, PTE_W,
@@ -14,7 +15,7 @@ use crate::{
     },
     x86::{
         defs::PrivilegeLevel,
-        helpers::{lcr3, ltr},
+        helpers::{load_cr3, ltr},
     },
     V2P,
 };
@@ -29,16 +30,16 @@ pub enum ProcessState {
 }
 
 #[repr(C)]
-#[derive(Default, Debug)]
-struct TrapFrame {
-    edi: usize,
-    esi: usize,
-    ebp: usize,
-    _esp: usize, // Unused ESP
-    ebx: usize,
-    edx: usize,
-    ecx: usize,
-    eax: usize,
+#[derive(Default, Debug, Copy, Clone)]
+pub struct TrapFrame {
+    pub edi: usize,
+    pub esi: usize,
+    pub ebp: usize,
+    pub _esp: usize, // Unused ESP
+    pub ebx: usize,
+    pub edx: usize,
+    pub ecx: usize,
+    pub eax: usize,
 
     gs: u16,
     unused_1: u16,
@@ -48,7 +49,7 @@ struct TrapFrame {
     unused_3: u16,
     ds: u16,
     unused_4: u16,
-    trap_number: usize,
+    pub trap_number: usize,
 
     err: usize,
     eip: usize,
@@ -77,7 +78,7 @@ pub struct Process {
     pub pgdir: Option<*mut usize>,
     pub state: ProcessState,
     pub context: Option<*mut Context>,
-    trapframe: Option<*mut TrapFrame>,
+    pub trapframe: Option<*mut TrapFrame>,
     kernel_stack: Option<*mut usize>,
     mem_size: usize,
     pub current_working_directory: String,
@@ -104,7 +105,8 @@ extern "C" {
     static _binary_init_start: usize;
     static _binary_init_size: usize;
 
-    fn trap_return();
+    pub fn trap_return();
+    pub fn trap_enter(frame: InterruptStackFrame);
 }
 
 static mut NEXT_PID: Mutex<usize> = Mutex::new(0);
@@ -112,12 +114,6 @@ static mut NEXT_PID: Mutex<usize> = Mutex::new(0);
 /// Add a process to the scheduler queue list.
 pub unsafe fn queue_process(process: Process) {
     PROCESS_LIST.lock().push(process);
-}
-
-/// Fork return performs initial setup of the filesystem
-/// TODO: Think of a better solution. XV6 one is not good.
-fn fork_return() {
-    return;
 }
 
 /// Spawn a process block. Notice the process block has no meaning until it is queued to be run
@@ -139,17 +135,13 @@ pub unsafe fn spawn_process() -> Result<Process, &'static str> {
     memset(esp as usize, 0, trapframe_size as usize);
     process.trapframe = Some(esp as *mut TrapFrame);
 
-    // Create Trap Return
-    esp = esp.offset(-1);
-    *esp = trap_return as *const () as usize;
-
     // Setup Context Layout
     esp = esp.offset(-context_size / 4);
     memset(esp as usize, 0, context_size as usize);
     process.context = Some(esp as *mut Context);
 
-    // Create Fork Return
-    (*process.context.unwrap()).eip = fork_return as *const () as usize;
+    // Create Trap Return
+    (*process.context.unwrap()).eip = trap_return as *const () as usize;
 
     *NEXT_PID.lock() += 1;
     Ok(process)
@@ -169,7 +161,7 @@ pub unsafe fn switch_user_virtual_memory(process: &Process) {
     (*tss).ss0 = (KERNEL_DATA_SEG_ENTRY << 3) as u16;
 
     ltr(TASK_SWITCH_SEG_ENTRY << 3);
-    lcr3(V2P!(page_dir));
+    load_cr3(V2P!(page_dir));
 }
 
 /// Migrate from Kernel Virtual Memory to User Virtual Memory. Notice that

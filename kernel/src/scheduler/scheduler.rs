@@ -1,27 +1,46 @@
 use spin::Mutex;
 
+use core::arch::asm;
+
 use crate::{
+    println,
     scheduler::process::{switch_user_virtual_memory, ProcessState},
     structures::heap_linked_list::HeapLinkedList,
 };
 
-use super::process::Process;
+use super::process::{Context, Process, TrapFrame};
 
-struct Scheduler {
-    current_process: Option<Process>,
+pub struct Scheduler {
+    pub current_process: Option<Process>,
+    pub context: usize,
 }
 
 pub static mut PROCESS_LIST: Mutex<HeapLinkedList<Process>> = Mutex::new(HeapLinkedList::new());
-static mut SCHEDULER: Mutex<Scheduler> = Mutex::new(Scheduler::new());
+pub static mut SCHEDULER: Mutex<Scheduler> = Mutex::new(Scheduler::new());
 
 extern "C" {
-    fn switch(process_context: usize);
+    fn switch(scheduler_context: usize, process_context: usize);
 }
 
 impl Scheduler {
     pub const fn new() -> Self {
         Scheduler {
             current_process: None,
+            context: 0,
+        }
+    }
+
+    pub fn set_trapframe(&mut self, trapframe: *mut TrapFrame) {
+        match self.current_process.is_none() {
+            true => return,
+            false => self.current_process.as_mut().unwrap().trapframe = Some(trapframe),
+        }
+    }
+
+    pub fn get_trapframe(&self) -> Option<*mut TrapFrame> {
+        match self.current_process.is_none() {
+            true => return None,
+            false => self.current_process.as_ref().unwrap().trapframe,
         }
     }
 
@@ -33,7 +52,11 @@ impl Scheduler {
 
         unsafe {
             switch_user_virtual_memory(self.current_process.as_ref().unwrap());
-            switch(process_context as usize)
+
+            switch(
+                &self.context as *const usize as usize,
+                process_context as usize,
+            );
         };
 
         Some(())
@@ -42,6 +65,12 @@ impl Scheduler {
     /// Main execution loop. If there is a process to schedule and this CPU is not currently
     /// busy running another process, takes the next process and schedule it.
     pub fn run(&mut self) {
+        unsafe {
+            // At this moment, SCHEDULER has been locked so any future access is prohibited.
+            // At this point we can unlock it for future use.
+            SCHEDULER.force_unlock();
+        }
+
         loop {
             if self.current_process.is_none() {
                 self.schedule();

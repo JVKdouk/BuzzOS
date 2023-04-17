@@ -1,9 +1,8 @@
-# Better Documentation
-# Manual for Students
-# Brush-Up C Concepts (Questions about Pointers)
-# Virtual Memory + Copy-On-Write
-
 [env]
+USER_PROGRAMS = """
+user/init
+user/test
+"""
 KERNEL_FILES = """
 entry.o
 switch.o
@@ -40,6 +39,18 @@ script = [
     "objdump -S ../build/bootloader.elf > ../build/boot.asm",
     "objdump -S ../build/kernel.elf > ../build/kernel.asm",
     "rm ../build/boot.elf",
+]
+
+[tasks.build_user]
+dependencies = ["clean"]
+workspace = false
+script = [
+    "cd user",
+    "cargo build",
+
+    "cd ../build",
+    "mkdir user",
+    "find ../user/target/x86-target/debug/ ! -name \"*.*\" -type f -maxdepth 1 -exec cp {} ./user ';'",
 ]
 
 # Build Kernel

@@ -1,0 +1,11 @@
+[unstable]
+build-std = ["core", "compiler_builtins", "alloc"]
+build-std-features = ["compiler-builtins-mem"]
+
+[build]
+rustflags = ["--emit", "asm", "-C", "llvm-args=-x86-asm-syntax=intel", "--emit", "obj"]
+target = "x86-target.json"
+target-dir = "./target"
+
+[target.'cfg(target_os = "none")']
+runner = "qemu-system-i386 -cdrom ./build/os.iso"

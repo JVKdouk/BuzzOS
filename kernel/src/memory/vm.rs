@@ -7,8 +7,8 @@ use super::{
     mem::{MEMORY_REGION, PHYSICAL_TOP},
 };
 use crate::{
-    memory::mem::memset, println, structures::heap_linked_list::HeapLinkedList, x86::helpers::lcr3,
-    P2V, PAGE_DIR_INDEX, PAGE_TABLE_INDEX, ROUND_DOWN, ROUND_UP, V2P,
+    memory::mem::memset, println, structures::heap_linked_list::HeapLinkedList,
+    x86::helpers::load_cr3, P2V, PAGE_DIR_INDEX, PAGE_TABLE_INDEX, ROUND_DOWN, ROUND_UP, V2P,
 };
 
 extern "C" {
@@ -188,7 +188,7 @@ pub fn setup_kernel_page_tables() -> Result<Page, &'static str> {
     *kernel_page_dir = Some(page_dir.address as usize);
 
     // Switch to new page directory
-    lcr3(V2P!(kernel_page_dir.unwrap()));
+    load_cr3(V2P!(kernel_page_dir.unwrap()));
 
     return Ok(page_dir);
 }

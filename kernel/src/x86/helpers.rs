@@ -8,9 +8,18 @@ use crate::{
 // ******** Control Registers ********
 
 #[inline]
-pub fn lcr3(page_dir: usize) {
+pub fn load_cr3(page_dir: usize) {
     unsafe {
         asm!("mov cr3, {}", in(reg) page_dir, options(nostack, preserves_flags));
+    }
+}
+
+#[inline]
+pub fn read_cr3() -> usize {
+    unsafe {
+        let mut value: usize = 0;
+        asm!("mov {}, cr3", out(reg) value, options(nostack, preserves_flags));
+        value
     }
 }
 

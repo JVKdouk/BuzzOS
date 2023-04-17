@@ -1,6 +1,15 @@
 use bitflags::bitflags;
 use core::marker::PhantomData;
 
+/// System Call Constants (system_call.rs)
+
+pub mod system_call {
+    pub const NUM_SYS_CALLS: usize = 1;
+
+    /// System Call Numbers
+    pub const PRINT_TRAPFRAME_SYSCALL: usize = 0;
+}
+
 /// Structure of a pointer to a IDT. Must be passed in this format
 /// to a lidt call.
 #[derive(Debug, Clone, Copy)]
@@ -57,7 +66,7 @@ pub struct IDT {
     pub machine_check: Gate<InterruptHandler>,
     pub simd_floating_point: Gate<InterruptHandler>,
     pub virtualization: Gate<InterruptHandler>,
-    pub cp_protection_exception: Gate<InterruptHandlerWithErr>,
+    pub control_protection_exception: Gate<InterruptHandlerWithErr>,
 
     pub reserved_2: [Gate<InterruptHandler>; 6],
 
