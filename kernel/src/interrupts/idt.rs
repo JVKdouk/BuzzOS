@@ -6,6 +6,10 @@ use crate::{interrupts::interrupt_handlers::*, println, x86::helpers::lidt};
 
 use super::defs::*;
 
+extern "x86-interrupt" {
+    fn trap_enter(stack: InterruptStackFrame);
+}
+
 impl<F> Gate<F> {
     // Implementation of an empty gate. Used to initialized gates
     #[inline]
@@ -139,8 +143,10 @@ lazy_static! {
         let mut global_idt = IDT::new();
 
         // Setup User System Call Interrupt Handler
-        global_idt.gp_interrupts[32].set_flags(GateFlags::TRAPGATE as u8 | GateFlags::DPL3 as u8);
-        global_idt.gp_interrupts[32].set_handler_fn(user_interrupt_switch);
+        unsafe {
+            global_idt.gp_interrupts[32].set_flags(GateFlags::TRAPGATE as u8 | GateFlags::DPL3 as u8);
+            global_idt.gp_interrupts[32].set_handler_addr(trap_enter as *const () as u32);
+        }
 
         // Setup Handler
         global_idt.div_by_zero.set_handler_fn(div_by_zero_handler);

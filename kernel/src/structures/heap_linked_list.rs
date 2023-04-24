@@ -16,7 +16,7 @@ impl<T> HeapLinkedList<T> {
         HeapLinkedList { head: None }
     }
 
-    pub fn push(&mut self, value: T) {
+    pub fn push(&mut self, value: T) -> &Node<T> {
         let previous_head = core::mem::replace(&mut self.head, None);
 
         let node = Box::new(Node {
@@ -25,6 +25,8 @@ impl<T> HeapLinkedList<T> {
         });
 
         self.head = Some(node);
+
+        self.head.as_ref().unwrap()
     }
 
     pub fn pop(&mut self) -> Option<T> {

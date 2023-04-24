@@ -4,10 +4,9 @@ use core::marker::PhantomData;
 /// System Call Constants (system_call.rs)
 
 pub mod system_call {
-    pub const NUM_SYS_CALLS: usize = 1;
-
-    /// System Call Numbers
-    pub const PRINT_TRAPFRAME_SYSCALL: usize = 0;
+    pub const PRINT_TRAP_FRAME: usize = 0;
+    pub const EXIT: usize = 1;
+    pub const YIELD: usize = 2;
 }
 
 /// Structure of a pointer to a IDT. Must be passed in this format

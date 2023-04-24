@@ -47,24 +47,22 @@ pub extern "x86-interrupt" fn gen_protection_fault(frame: InterruptStackFrame, _
     panic!("EXCEPTION: GENERAL PROTECTION FAULT\n{:#?}", frame);
 }
 
-// User System Call Interrupt Handlers
-
-#[inline]
-pub extern "x86-interrupt" fn user_interrupt_switch(frame: InterruptStackFrame) {
-    unsafe {
-        // Backup the current context and trapframe of the process. This will later be
-        // restored once the trap is finished.
-        asm!("jmp trap_enter", options(nomem, nostack, preserves_flags));
-    }
-}
-
 #[no_mangle]
 extern "C" fn user_interrupt_handler(trapframe: &mut TrapFrame) {
-    if trapframe.trap_number == 64 {
-        unsafe {
-            SCHEDULER.lock().set_trapframe(trapframe as *mut TrapFrame);
-        }
-
-        handle_system_call(trapframe);
+    unsafe {
+        // Update trapframe, which contains all registers of the process execution context
+        let current_process = SCHEDULER
+            .lock()
+            .current_process
+            .as_mut()
+            .unwrap()
+            .set_trapframe(*trapframe);
     }
+
+    let system_call_number = trapframe.eax;
+    let arg0 = trapframe.edi;
+    let arg1 = trapframe.esi;
+    let arg2 = trapframe.edx;
+    let arg3 = trapframe.ecx;
+    handle_system_call(system_call_number, arg0, arg1, arg2, arg3);
 }
