@@ -17,6 +17,7 @@ entry:
     lidt [zero_idt]
 
     call enable_paging
+    call has_cpuid
 
     ; Finally, time to get Rusty
     extern _start
@@ -25,6 +26,30 @@ entry:
 
     ; If the above instruction fails, we halt the processor.
     hlt
+
+; CPUID is an instruction that provides cpu-specific information, used for multiprocessing
+; identification. Later used to setup the APIC.
+has_cpuid:
+    ; Prepare eflags
+    pushfd
+    pop eax
+    mov ecx, eax
+
+    ; Set CPUID flag
+    xor eax, 1 << 21
+    push eax
+    popfd
+
+    ; Check if CPUID flag is still present and restore eflags
+    pushfd
+    pop eax
+    push ecx
+    popfd
+
+    ; Check if CPUID is supported
+    cmp eax, ecx
+    je error
+    ret
 
 ; Time to enable paging. Here, page size extensions are enabled to allow for bigger pages
 ; and the initial page directory is loaded into CR3. Notice this page directory will be replace
@@ -45,6 +70,9 @@ enable_paging:
     mov cr0, eax    ; Update CR0
 
     ret
+
+error:
+    hlt
 
 align 4096 ; Ensures page alignment
 pd_table:

@@ -2,12 +2,18 @@ use core::{marker::PhantomData, mem::size_of};
 
 use lazy_static::lazy_static;
 
-use crate::{interrupts::interrupt_handlers::*, println, x86::helpers::lidt};
+use crate::{
+    apic::defs::{IRQ_COM1, IRQ_KEYBOARD, IRQ_TIMER},
+    interrupts::interrupt_handlers::*,
+    interrupts::irqs,
+    println,
+    x86::helpers::lidt,
+};
 
 use super::defs::*;
 
 extern "x86-interrupt" {
-    fn trap_enter(stack: InterruptStackFrame);
+    pub fn trap_enter(frame: InterruptStackFrame);
 }
 
 impl<F> Gate<F> {
@@ -141,6 +147,16 @@ impl IDT {
 lazy_static! {
     static ref GLOBAL_IDT: IDT = {
         let mut global_idt = IDT::new();
+
+        // Setup all interrupts
+        for i in 0..224 {
+            global_idt.gp_interrupts[i].set_flags(GateFlags::INTGATE as u8);
+            global_idt.gp_interrupts[i].set_handler_fn(general_irq_handler);
+        }
+
+        global_idt.gp_interrupts[IRQ_TIMER].set_handler_fn(irqs::timer);
+        global_idt.gp_interrupts[IRQ_KEYBOARD].set_handler_fn(irqs::keyboard);
+        global_idt.gp_interrupts[IRQ_COM1].set_handler_fn(irqs::keyboard);
 
         // Setup User System Call Interrupt Handler
         unsafe {

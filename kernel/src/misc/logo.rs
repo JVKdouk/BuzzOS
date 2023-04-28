@@ -9,5 +9,5 @@ pub static OS_LOGO_HEADER: &str = " ____                     ____    _____
 
 pub fn print_logo() {
     println!("\n{}", OS_LOGO_HEADER);
-    println!("Version 0.1 - By Joao Kdouk\n\n");
+    println!("Version 0.3 - By Joao Kdouk\n\n");
 }

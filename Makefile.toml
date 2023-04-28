@@ -50,7 +50,7 @@ script = [
 
     "cd ../build",
     "mkdir user",
-    "find ../user/target/x86-target/debug/ ! -name \"*.*\" -type f -maxdepth 1 -exec cp {} ./user ';'",
+    # "cp ../users/x86-target/debug",
 ]
 
 # Build Kernel
@@ -87,7 +87,7 @@ script = [
     "rm build/boot.bin",
     
     # Start OS
-    "qemu-system-i386 -nographic -drive file=build/buzz.img,index=0,media=disk,format=raw -no-shutdown -no-reboot -m 512",
+    "qemu-system-i386 -nographic -drive file=build/buzz.img,index=0,media=disk,format=raw -smp 1 -M pc-i440fx-6.1 -no-shutdown -no-reboot -m 512",
 ]
 
 # Build bootloader asm files
@@ -102,7 +102,7 @@ script = [
     "rm build/boot.bin",
     
     # Start OS
-    "qemu-system-i386 -s -S -drive file=build/buzz.img,index=0,media=disk,format=raw -no-reboot -no-shutdown -nographic -serial mon:stdio -m 512",
+    "qemu-system-i386 -s -S -drive file=build/buzz.img,index=0,media=disk,format=raw -smp 2 -no-reboot -no-shutdown -nographic -serial mon:stdio -m 512",
 ]
 
 [tasks.default]

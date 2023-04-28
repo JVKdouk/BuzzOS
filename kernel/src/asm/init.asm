@@ -2,7 +2,6 @@ global init_start
 section .text.init
 bits 32
 init_start:
-
     ; 4 Parameters
     mov ecx, 0x3
     mov edx, 0x2
@@ -16,6 +15,8 @@ init_start:
     ; Yield Process
     mov eax, 0x2
     int 64
+
+    jmp $
     
     ; Exit Process
     mov eax, 0x1

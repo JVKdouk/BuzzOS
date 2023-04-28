@@ -10,10 +10,10 @@ trap_enter:
     push 0  ; Error Code
     push 64 ; General User Trap Number
 
-    push dword ds
-    push dword es
-    push dword fs
-    push dword gs
+    push ds
+    push es
+    push fs
+    push gs
     pusha
 
     mov ax, 0x10
@@ -26,9 +26,9 @@ trap_enter:
 
 trap_return:
     popa
-    pop dword gs
-    pop dword fs
-    pop dword es
-    pop dword ds
+    pop gs
+    pop fs
+    pop es
+    pop ds
     add esp, 0x8 ; Skip Trap Number and Error Code
     iret

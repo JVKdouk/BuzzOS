@@ -51,13 +51,13 @@ macro_rules! PAGE_DIR_INDEX {
 }
 
 /// GDT Definitions
-pub const N_DESCRIPTORS: usize = 6;
+pub const N_DESCRIPTORS: usize = 7;
 
-pub const KERNEL_CODE_SEG_ENTRY: u16 = 1;
-pub const KERNEL_DATA_SEG_ENTRY: u16 = 2;
-pub const USER_CODE_SEG_ENTRY: u16 = 3;
-pub const USER_DATA_SEG_ENTRY: u16 = 4;
-pub const TASK_SWITCH_SEG_ENTRY: u16 = 5;
+pub const KERNEL_CODE_SEGMENT: u16 = 1;
+pub const KERNEL_DATA_SEGMENT: u16 = 2;
+pub const USER_CODE_SEGMENT: u16 = 3;
+pub const USER_DATA_SEGMENT: u16 = 4;
+pub const TASK_STATE_SEGMENT: u16 = 5;
 
 pub const GDT_FLAG_L: u8 = 0x2;
 pub const GDT_FLAG_DB: u8 = 0x4;
@@ -72,6 +72,9 @@ pub const GDT_RING2: u8 = 0x40;
 pub const GDT_RING3: u8 = 0x60;
 pub const GDT_TYPE_S: u8 = 0x10;
 pub const GDT_TYPE_P: u8 = 0x80;
+
+/// Memory Layout
+pub const MEM_BDA: usize = 0x400;
 
 /// VM Definitions
 pub const PAGE_SIZE: usize = 4096;
@@ -98,18 +101,11 @@ pub struct LinkedListAllocator {
     pub head: StaticLinkedListNode,
 }
 
-#[derive(Debug, Clone)]
-pub struct GlobalDescriptorTable {
-    pub table: [u64; N_DESCRIPTORS], // Segment Descriptor List
-    pub len: usize,                  // Size of GDT
-}
+#[derive(Clone, Copy, Debug)]
+pub struct GlobalDescriptorTableSegment(pub u64);
 
-#[derive(Debug, Clone, Copy)]
-#[repr(C, packed(2))]
-pub struct GlobalDescriptorTablePointer {
-    pub size: u16,
-    pub base: u64,
-}
+#[derive(Clone, Copy, Debug)]
+pub struct GlobalDescriptorTable(pub [GlobalDescriptorTableSegment; N_DESCRIPTORS]);
 
 #[derive(Debug)]
 #[repr(C)]
@@ -139,7 +135,7 @@ bitflags! {
         const WRITABLE          = 1 << 41;
         const CONFORMING        = 1 << 42;
         const EXECUTABLE        = 1 << 43;
-        const USER_SEGMENT      = 1 << 44;
+        const NORMAL            = 1 << 44;
         const DPL_RING_3        = 3 << 45;
         const PRESENT           = 1 << 47;
         const AVAILABLE         = 1 << 52;
@@ -152,15 +148,11 @@ bitflags! {
         // Limit
         const LIMIT_0_15        = 0xFFFF;
         const LIMIT_16_19       = 0xF << 48;
-
-        // Base
-        const BASE_0_23         = 0xFF_FFFF << 16;
-        const BASE_24_31        = 0xFF << 56;
     }
 }
 
 #[repr(C)]
-#[derive(Default)]
+#[derive(Default, Clone, Copy, Debug)]
 pub struct TaskStateSegment {
     // Segment Selectors and Previous Task Link Field
     link: u32,
@@ -205,12 +197,5 @@ pub struct TaskStateSegment {
     reserved_12: u16,
 
     // I/O Mapping
-    iopb: u16,
+    pub iopb: u16,
 }
-
-// Common segments
-pub const KERNEL_CODE_SEGMENT: u64 = DescriptorFlags::KERNEL_CODE32.bits();
-pub const KERNEL_DATA_SEGMENT: u64 = DescriptorFlags::KERNEL_DATA.bits();
-pub const USER_CODE_SEGMENT: u64 = DescriptorFlags::USER_CODE64.bits();
-pub const USER_DATA_SEGMENT: u64 = DescriptorFlags::USER_DATA.bits();
-pub const TASK_STATE_SEGMENT: u64 = 0;

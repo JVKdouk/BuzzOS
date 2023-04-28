@@ -1,9 +1,6 @@
 use core::arch::asm;
 
-use crate::{
-    interrupts::defs::InterruptDescriptorTablePointer, memory::defs::GlobalDescriptorTablePointer,
-    println,
-};
+use crate::interrupts::defs::InterruptDescriptorTablePointer;
 
 // ******** Control Registers ********
 
@@ -17,7 +14,7 @@ pub fn load_cr3(page_dir: usize) {
 #[inline]
 pub fn read_cr3() -> usize {
     unsafe {
-        let mut value: usize = 0;
+        let mut value: usize;
         asm!("mov {}, cr3", out(reg) value, options(nostack, preserves_flags));
         value
     }
@@ -27,7 +24,7 @@ pub fn read_cr3() -> usize {
 #[inline]
 pub fn read_cr2() -> usize {
     unsafe {
-        let mut value = 0;
+        let mut value;
         asm!("mov {}, cr2", out(reg) value, options(nomem, nostack));
         value
     }
@@ -56,10 +53,17 @@ pub fn sti() {
     }
 }
 
+#[inline]
+pub fn hlt() {
+    unsafe {
+        asm!("hlt");
+    }
+}
+
 // *************** Segmentation ***************
 
 #[inline]
-pub unsafe fn lgdt(gdt: &GlobalDescriptorTablePointer) {
+pub fn lgdt(gdt: &u64) {
     unsafe {
         asm!("lgdt [{}]",
         in(reg) gdt, options(readonly, nostack, preserves_flags));
@@ -156,6 +160,28 @@ pub fn stosb(address: usize, value: u8, length: usize) {
             in("ecx") length,
             options(nostack, preserves_flags)
         );
+    }
+}
+
+// ************ Multiprocessing ************
+
+#[inline]
+pub fn cpuid(instruction: usize) -> (usize, usize, usize) {
+    unsafe {
+        let mut ebx;
+        let mut ecx;
+        let mut edx;
+
+        asm!(
+            "cpuid",
+            in("eax") instruction,
+            out("ebx") ebx,
+            out("ecx") ecx,
+            out("edx") edx,
+            options(nostack, preserves_flags)
+        );
+
+        return (ebx, ecx, edx);
     }
 }
 

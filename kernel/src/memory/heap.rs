@@ -173,10 +173,14 @@ impl LinkedListAllocator {
     }
 }
 
-pub fn setup_heap() -> Result<(), &'static str> {
+pub fn setup_heap() {
     println!("[KERNEL] Setting Up Heap");
 
-    let page_address = MEMORY_REGION.lock().next(HEAP_PAGES)?.address as usize;
+    let page_address = MEMORY_REGION
+        .lock()
+        .next(HEAP_PAGES)
+        .expect("[FATAL] Out of Memory")
+        .address as usize;
 
     unsafe {
         HEAP_ALLOCATOR
@@ -187,6 +191,4 @@ pub fn setup_heap() -> Result<(), &'static str> {
     *IS_HEAP_ENABLED.lock() = true;
 
     println!("[KERNEL] Allocated {} Heap Pages", HEAP_PAGES);
-
-    Ok(())
 }

@@ -1,7 +1,7 @@
 #![no_std]
 #![no_main]
 
-use 
+use buzzos_user_space;
 
 /// Init main
 fn init_process() {}

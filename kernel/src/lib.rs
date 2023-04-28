@@ -1,12 +1,14 @@
 #![no_std]
 #![no_main]
-#![feature(mixed_integer_ops)]
 #![feature(abi_x86_interrupt)]
 #![feature(const_mut_refs)]
 #![feature(alloc_error_handler)]
+#![feature(pointer_byte_offsets)]
 #[macro_use]
 
 pub mod devices;
+pub mod apic;
+pub mod filesystem;
 pub mod interrupts;
 pub mod memory;
 pub mod misc;
@@ -20,6 +22,8 @@ extern crate alloc;
 // Interface definition of panic in Rust. Core represents the core library
 use core::panic::PanicInfo;
 
+use crate::x86::helpers::sti;
+
 // Uses C calling convention instead of Rust. no_mangle removes name mangling when compiled.
 // _start is the default entry point for most systems. Function is diverging as the Kernel should
 // never return
@@ -29,13 +33,24 @@ pub unsafe extern "C" fn _start() -> ! {
     devices::debug::debug_init();
     misc::logo::print_logo();
 
-    // Setup Segmentation and Virtual Memory
+    // Setup Virtual Memory
     memory::vm::setup_vm();
-    memory::gdt::setup_gdt();
     memory::heap::setup_heap();
 
+    // Setup Hardware Interrupts and Multiprocessing
+    apic::mp::setup_mp();
+    apic::local_apic::setup_local_apic();
+    apic::io_apic::setup_io_apic();
+    apic::disable_pic();
+
+    // Setup Segmentation and Virtual Memory
+    memory::gdt::setup_gdt();
+
     // Setup Interrupts
+    devices::console::setup_console();
     interrupts::idt::setup_idt();
+
+    sti();
 
     // Scheduler
     scheduler::process::spawn_init_process();

@@ -8,18 +8,19 @@ use super::{
 };
 
 use crate::{
-    interrupts::defs::InterruptStackFrame,
+    apic::mp::{get_my_cpu, CPUS},
     memory::{
         defs::{
-            Page, KERNEL_BASE, KERNEL_DATA_SEG_ENTRY, PAGE_SIZE, PTE_U, PTE_W, USER_CODE_SEG_ENTRY,
-            USER_DATA_SEG_ENTRY,
+            Page, KERNEL_BASE, KERNEL_DATA_SEGMENT, PAGE_SIZE, PTE_U, PTE_W, TASK_STATE_SEGMENT,
+            USER_CODE_SEGMENT, USER_DATA_SEGMENT,
         },
-        gdt::TSS,
         mem::{memmove, memset},
         vm::{allocate_page, map_pages, setup_kernel_page_tables},
     },
-    println,
-    x86::{defs::PrivilegeLevel, helpers::load_cr3},
+    x86::{
+        defs::PrivilegeLevel,
+        helpers::{cli, load_cr3, ltr, sti},
+    },
     V2P,
 };
 
@@ -36,7 +37,7 @@ impl ProcessList {
         self.0.get(pid).cloned()
     }
 
-    pub fn set_pid(&mut self, pid: usize, process: Process) {
+    pub fn update_process(&mut self, pid: usize, process: Process) {
         if pid > self.0.len() {
             panic!("[FATAL] PID out of bounds");
         }
@@ -111,7 +112,6 @@ extern "C" {
     static _binary_init_size: usize;
 
     pub fn trap_return();
-    pub fn trap_enter(frame: InterruptStackFrame);
 }
 
 /// Spawn a process block. Notice the process block has no meaning until it is queued to be run
@@ -121,7 +121,7 @@ pub unsafe fn spawn_process() -> Result<usize, &'static str> {
     let mut process = Process::new(0);
     let trapframe_size = core::mem::size_of::<TrapFrame>() as isize;
     let context_size = core::mem::size_of::<Context>() as isize;
-    let kernel_page = allocate_page()?.address as *mut usize;
+    let kernel_page = allocate_page().address as *mut usize;
     let mut esp = kernel_page.offset(PAGE_SIZE as isize / 4);
 
     process.kernel_stack = Some(kernel_page);
@@ -148,6 +148,20 @@ pub unsafe fn spawn_process() -> Result<usize, &'static str> {
     }
 }
 
+unsafe fn set_user_tss(process: &Process) {
+    let mut cpus = CPUS.lock();
+    let cpu = get_my_cpu(&mut cpus).unwrap();
+    let mut task_state = cpu.taskstate.as_mut().unwrap();
+    let gdt = &mut cpu.gdt;
+
+    gdt.set_long_segment(TASK_STATE_SEGMENT, task_state.get_segment() as u128);
+    task_state.esp0 = process.kernel_stack.unwrap().offset(PAGE_SIZE as isize) as u32;
+    task_state.ss0 = (KERNEL_DATA_SEGMENT << 3) as u16;
+    task_state.iopb = 0xFFFF;
+
+    ltr((TASK_STATE_SEGMENT as u16) << 3);
+}
+
 /// Switch to User Virtual Memory, departing from Kernel Virtual Memory. Notice this does
 /// not yet change the DPL or CPL, as this is done at a later step. Since Kernel memory is
 /// entirely mapped for every process, the process can continue executing after the memory is
@@ -157,11 +171,10 @@ pub unsafe fn switch_user_virtual_memory(process: &Process) {
         .pgdir
         .expect("[FATAL] Process has no page directory") as usize;
 
-    let mut tss = TSS.lock();
-    (*tss).esp0 = process.kernel_stack.unwrap().offset(PAGE_SIZE as isize) as u32;
-    (*tss).ss0 = (KERNEL_DATA_SEG_ENTRY << 3) as u16;
-
+    cli();
+    set_user_tss(process);
     load_cr3(V2P!(page_dir));
+    sti();
 }
 
 /// Migrate from Kernel Virtual Memory to User Virtual Memory. Notice that
@@ -170,7 +183,7 @@ pub unsafe fn setup_user_virtual_memory(page_dir: Page, address: *const usize, s
         panic!("[FATAL] User Virtual Memory is bigger than one page");
     }
 
-    let memory_page = allocate_page().expect("[FATAL] Failed to Allocate");
+    let memory_page = allocate_page();
     let virtual_address = 0;
     let page_size = PAGE_SIZE;
     let phys_address = V2P!(memory_page.address as usize);
@@ -184,13 +197,13 @@ pub unsafe fn setup_user_virtual_memory(page_dir: Page, address: *const usize, s
 
 /// Spawns the first process to run in the user space, the init process. Subsequent children inherit
 /// many attributes of the init process, such as trapframe,
-pub unsafe fn spawn_init_process() -> Result<(), &'static str> {
-    let process_pid = spawn_process()?;
+pub unsafe fn spawn_init_process() {
+    let process_pid = spawn_process().expect("[FATAL] Failed to start init process");
     let mut process = PROCESS_LIST.lock().get_pid(process_pid).unwrap();
 
-    let kernel_pgdir = setup_kernel_page_tables()?;
-    let user_code_selector = (USER_CODE_SEG_ENTRY << 3) as u16 | PrivilegeLevel::Ring3 as u16;
-    let user_data_selector = (USER_DATA_SEG_ENTRY << 3) as u16 | PrivilegeLevel::Ring3 as u16;
+    let kernel_pgdir = setup_kernel_page_tables().expect("[FATAL] Failed to setup Kernel pages");
+    let user_code_selector = (USER_CODE_SEGMENT << 3) as u16 | PrivilegeLevel::Ring3 as u16;
+    let user_data_selector = (USER_DATA_SEGMENT << 3) as u16 | PrivilegeLevel::Ring3 as u16;
 
     process.pgdir = Some(kernel_pgdir.address as *mut usize);
 
@@ -207,13 +220,11 @@ pub unsafe fn spawn_init_process() -> Result<(), &'static str> {
     (*process.trapframe.unwrap()).ds = user_data_selector;
     (*process.trapframe.unwrap()).es = user_data_selector;
     (*process.trapframe.unwrap()).ss = user_data_selector;
-    (*process.trapframe.unwrap()).eflags = 0x0;
+    (*process.trapframe.unwrap()).eflags = 0x200;
 
     // Setup Misc
     process.name = String::from("init");
     process.state = ProcessState::READY;
 
-    PROCESS_LIST.lock().set_pid(process_pid, process);
-
-    Ok(())
+    PROCESS_LIST.lock().update_process(process_pid, process);
 }

@@ -6,7 +6,7 @@
 use lazy_static::lazy_static;
 use spin::Mutex;
 
-use crate::{print, println, x86::helpers::stosb, P2V, ROUND_UP};
+use crate::{x86::helpers::stosb, P2V, ROUND_UP};
 
 use super::defs::{MemoryRegion, Page, KERNEL_BASE};
 

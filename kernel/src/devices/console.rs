@@ -2,7 +2,12 @@ use core::fmt;
 use lazy_static::lazy_static;
 use spin::Mutex;
 
-use super::uart::uart_put_char;
+use crate::apic::{
+    defs::{IRQ_COM1, IRQ_KEYBOARD},
+    io_apic::enable_irq,
+};
+
+use super::uart::{uart_get_char, uart_put_char};
 
 pub struct Console;
 
@@ -15,7 +20,7 @@ impl fmt::Write for Console {
 
 impl Console {
     fn write_char(&self, c: char) {
-        uart_put_char(c).expect("[ERROR] Failed to stream char");
+        print_char_strategy_manager(c);
     }
 
     pub fn write_string(&self, text: &str) {
@@ -23,8 +28,36 @@ impl Console {
             self.write_char(c);
         }
     }
+
+    pub fn keyboard_interrupt(&self) {
+        while let Some(data) = uart_get_char() {
+            self.write_char(data as char);
+        }
+    }
 }
 
 lazy_static! {
     pub static ref CONSOLE: Mutex<Console> = Mutex::new(Console {});
+}
+
+pub fn print_char_strategy_manager(c: char) {
+    match c as u8 {
+        // Backspace
+        127 => {
+            uart_put_char(0x8 as char);
+            uart_put_char(' ');
+            uart_put_char(0x8 as char);
+        }
+
+        // Carriage Return becomes Line Feed
+        13 => uart_put_char('\n'),
+
+        // All other characters
+        _ => uart_put_char(c),
+    }
+}
+
+pub fn setup_console() {
+    enable_irq(IRQ_KEYBOARD, 0);
+    enable_irq(IRQ_COM1, 0);
 }

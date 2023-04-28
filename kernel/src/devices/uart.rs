@@ -1,3 +1,5 @@
+use core::panic;
+
 /// UART Serial Communication implementation. COM1 is an external device located at 0x3F8. Communication with it
 /// allows us to setup UART configuration and send our first bit of data.
 /// More information can be found here https://wiki.osdev.org/UART.
@@ -38,10 +40,10 @@ pub fn uart_init() -> Result<(), ()> {
 }
 
 /// Puts a character in the Serial Port
-pub fn uart_put_char(c: char) -> Result<(), ()> {
+pub fn uart_put_char(c: char) {
     // UART safety check
     if *IS_UART_ENABLED.lock() == false {
-        return Err(());
+        panic!("[FATAL] UART is not open");
     }
 
     // Serial needs to be ready. Waits for status line to be ready before
@@ -55,6 +57,17 @@ pub fn uart_put_char(c: char) -> Result<(), ()> {
 
     // Send char to UART
     outb(COM1 + 0, c as u8);
+}
 
-    Ok(())
+pub fn uart_get_char() -> Option<u8> {
+    // if !(*IS_UART_ENABLED.lock()) {
+    //     return None;
+    // }
+
+    let status = inb(COM1 + 5) & 0x1;
+    if status == 0 {
+        return None;
+    }
+
+    return Some(inb(COM1));
 }

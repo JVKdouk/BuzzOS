@@ -1,8 +1,11 @@
 use spin::Mutex;
 
 use crate::{
-    memory::defs::KERNEL_BASE, memory::vm::KERNEL_PAGE_DIR, println,
-    scheduler::process::switch_user_virtual_memory, x86::helpers::load_cr3, V2P,
+    memory::defs::KERNEL_BASE,
+    memory::vm::KERNEL_PAGE_DIR,
+    scheduler::process::switch_user_virtual_memory,
+    x86::helpers::{load_cr3, sti},
+    V2P,
 };
 
 use super::defs::{
@@ -21,7 +24,7 @@ impl Scheduler {
     pub const fn new() -> Self {
         Scheduler {
             current_process: None,
-            context: unsafe { 0x0 as *mut Context }, // TODO: Improve this
+            context: 0x0 as *mut Context, // TODO: Improve this
             status: SchedulerState::READY,
         }
     }
@@ -33,11 +36,6 @@ impl Scheduler {
         unsafe {
             *process_trapframe = *trapframe;
         }
-
-        // match self.current_process.is_none() {
-        //     true => return,
-        //     false => self.current_process.as_mut().unwrap().trapframe = Some(trapframe),
-        // }
     }
 
     pub fn get_trapframe(&self) -> Option<*mut TrapFrame> {
@@ -59,11 +57,10 @@ impl Scheduler {
             ProcessState::READY
         };
 
-        // TODO: Do we really need to clone on every switch?
-        process_list.set_pid(current_process.pid, current_process.clone());
+        process_list.update_process(current_process.pid, current_process.clone());
 
         // Prepare process context for switching
-        let mut process_context = current_process.context.as_mut().unwrap();
+        let process_context = current_process.context.as_mut().unwrap();
 
         SCHEDULER.force_unlock();
         PROCESS_LIST.force_unlock();
@@ -80,7 +77,6 @@ impl Scheduler {
             };
 
             let process_context = process.context.expect("[FATAL] No Context");
-            let trapframe = process.trapframe.expect("[FATAL] No Trapframe");
 
             // Update Scheduler and Process States
             process.state = ProcessState::RUNNING;
@@ -92,6 +88,8 @@ impl Scheduler {
                 switch(&mut self.context, process_context);
                 switch_kernel_virtual_memory();
             };
+
+            sti();
 
             self.status = SchedulerState::READY;
         }

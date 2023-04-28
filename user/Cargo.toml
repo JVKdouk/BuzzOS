@@ -8,7 +8,6 @@ edition = "2021"
 [lib]
 name = "buzzos_user_space"
 path = "src/lib.rs"
-crate-type = ["staticlib"]
 
 [profile.dev]
 panic = "abort"

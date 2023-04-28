@@ -1,6 +1,5 @@
-use core::arch::asm;
-
 use crate::{
+    apic::local_apic::local_apic_acknowledge,
     println,
     scheduler::{defs::process::TrapFrame, scheduler::SCHEDULER},
     x86::helpers::read_cr2,
@@ -47,11 +46,16 @@ pub extern "x86-interrupt" fn gen_protection_fault(frame: InterruptStackFrame, _
     panic!("EXCEPTION: GENERAL PROTECTION FAULT\n{:#?}", frame);
 }
 
+pub extern "x86-interrupt" fn general_irq_handler(_frame: InterruptStackFrame) {
+    println!("IRQ");
+    local_apic_acknowledge();
+}
+
 #[no_mangle]
 extern "C" fn user_interrupt_handler(trapframe: &mut TrapFrame) {
     unsafe {
         // Update trapframe, which contains all registers of the process execution context
-        let current_process = SCHEDULER
+        SCHEDULER
             .lock()
             .current_process
             .as_mut()
