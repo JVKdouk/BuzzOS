@@ -3,6 +3,7 @@ use spin::Mutex;
 use crate::{
     memory::defs::KERNEL_BASE,
     memory::vm::KERNEL_PAGE_DIR,
+    println,
     scheduler::process::switch_user_virtual_memory,
     x86::helpers::{load_cr3, sti},
     V2P,

@@ -1,12 +1,39 @@
-use crate::{apic::local_apic::local_apic_acknowledge, devices::console::CONSOLE};
+use crate::{
+    apic::{
+        defs::{IRQ_COM1, IRQ_KEYBOARD, IRQ_TIMER},
+        local_apic::local_apic_acknowledge,
+    },
+    devices::console::CONSOLE,
+    println,
+    scheduler::{defs::process::TrapFrame, scheduler::SCHEDULER},
+};
 
-use super::defs::InterruptStackFrame;
+use super::system_call::_yield;
 
-pub extern "x86-interrupt" fn timer(_frame: InterruptStackFrame) {
-    local_apic_acknowledge();
+pub fn handle_irq(trapframe: &mut TrapFrame) {
+    let irq_number = trapframe.trap_number - 32;
+
+    match irq_number {
+        IRQ_TIMER => timer(trapframe),
+        IRQ_COM1 => keyboard(trapframe),
+        IRQ_KEYBOARD => keyboard(trapframe),
+        _ => local_apic_acknowledge(),
+    }
 }
 
-pub extern "x86-interrupt" fn keyboard(_frame: InterruptStackFrame) {
-    CONSOLE.lock().keyboard_interrupt();
+fn timer(_trapframe: &mut TrapFrame) {
+    // Do Something Here
     local_apic_acknowledge();
+
+    // Clock Tick: Yield
+    let is_running_process = unsafe { SCHEDULER.lock().current_process.is_some() };
+    if is_running_process {
+        _yield();
+    }
+}
+
+fn keyboard(_trapframe: &mut TrapFrame) {
+    // println!("HERE");
+    local_apic_acknowledge();
+    CONSOLE.lock().keyboard_interrupt();
 }

@@ -14,6 +14,7 @@ use super::defs::*;
 
 extern "x86-interrupt" {
     pub fn trap_enter(frame: InterruptStackFrame);
+    pub static int_table: [u32; 256 - 32];
 }
 
 impl<F> Gate<F> {
@@ -55,7 +56,7 @@ impl<F> Gate<F> {
 
     // Set gate handler. Accepts the 64-bits address of the handler function
     #[inline]
-    pub unsafe fn set_handler_addr(&mut self, addr: u32) -> &mut u8 {
+    pub fn set_handler_addr(&mut self, addr: u32) -> &mut u8 {
         self.fn_addr_low = addr as u16;
         self.fn_addr_high = (addr >> 16) as u16;
         self.segment_selector = 0x8;
@@ -150,19 +151,14 @@ lazy_static! {
 
         // Setup all interrupts
         for i in 0..224 {
+            let interrupt_handler = unsafe { int_table[i] };
             global_idt.gp_interrupts[i].set_flags(GateFlags::INTGATE as u8);
-            global_idt.gp_interrupts[i].set_handler_fn(general_irq_handler);
+            global_idt.gp_interrupts[i].set_handler_addr(interrupt_handler);
         }
-
-        global_idt.gp_interrupts[IRQ_TIMER].set_handler_fn(irqs::timer);
-        global_idt.gp_interrupts[IRQ_KEYBOARD].set_handler_fn(irqs::keyboard);
-        global_idt.gp_interrupts[IRQ_COM1].set_handler_fn(irqs::keyboard);
 
         // Setup User System Call Interrupt Handler
-        unsafe {
-            global_idt.gp_interrupts[32].set_flags(GateFlags::TRAPGATE as u8 | GateFlags::DPL3 as u8);
-            global_idt.gp_interrupts[32].set_handler_addr(trap_enter as *const () as u32);
-        }
+        global_idt.gp_interrupts[32].set_flags(
+            GateFlags::TRAPGATE as u8 | GateFlags::PRESENT as u8 | GateFlags::DPL3 as u8);
 
         // Setup Handler
         global_idt.div_by_zero.set_handler_fn(div_by_zero_handler);

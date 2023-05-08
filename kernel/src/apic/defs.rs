@@ -7,6 +7,8 @@ pub const IRQ_IDE: usize = 14;
 pub const IRQ_ERROR: usize = 19;
 pub const IRQ_SPURIOUS: usize = 31;
 
+pub const INITIAL_TIMER_COUNT: usize = 100000000; // Around 100ms per tick. Change this to change clock speed
+
 /// Local APIC Registers
 
 pub mod local_apic_registers {

@@ -8,6 +8,7 @@ entry.o
 switch.o
 kernel.o
 trap.o
+int_table.o
 """
 BOOTLOADER_FILES = """
 bootloader/src/linker.ld
@@ -64,6 +65,7 @@ script = [
     "nasm -f elf32 src/boot/entry.asm -o ../build/entry.o",
     "nasm -f elf32 src/asm/switch.asm -o ../build/switch.o",
     "nasm -f elf32 src/asm/trap.asm -o ../build/trap.o",
+    "nasm -f elf32 src/asm/int_table.asm -o ../build/int_table.o",
     "nasm -f bin src/asm/init.asm -o ../build/init",
 
     "RUSTFLAGS=-g cargo build --target x86-target.json",
@@ -103,6 +105,12 @@ script = [
     
     # Start OS
     "qemu-system-i386 -s -S -drive file=build/buzz.img,index=0,media=disk,format=raw -smp 2 -no-reboot -no-shutdown -nographic -serial mon:stdio -m 512",
+]
+
+[tasks.dry-run]
+workspace = false
+script = [
+    "cargo doc"
 ]
 
 [tasks.default]

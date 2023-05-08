@@ -2,7 +2,7 @@ use crate::{apic::defs::local_apic_registers as regs, apic::mp::LOCAL_APIC};
 
 use super::defs::{
     local_apic_registers::{MASKED_INTERRUPT, PERFORMANCE_COUNTER, VERSION},
-    BASE_IRQ, IRQ_ERROR, IRQ_SPURIOUS, IRQ_TIMER,
+    BASE_IRQ, INITIAL_TIMER_COUNT, IRQ_ERROR, IRQ_SPURIOUS, IRQ_TIMER,
 };
 
 pub fn setup_local_apic() {
@@ -17,7 +17,7 @@ pub fn setup_local_apic() {
     // given interval.
     local_apic_write(regs::TIMER_DIVIDE_CONFIGURATION, regs::TIMER_X1);
     local_apic_write(regs::TIMER, regs::TIMER_PERIODIC | (BASE_IRQ + IRQ_TIMER));
-    local_apic_write(regs::TIMER_INITIAL_COUNT, 4000000000);
+    local_apic_write(regs::TIMER_INITIAL_COUNT, INITIAL_TIMER_COUNT);
 
     // Disable logical interrupts
     local_apic_write(regs::LOCAL_VECTOR_TABLE_0, regs::MASKED_INTERRUPT);

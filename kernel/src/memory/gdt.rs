@@ -32,24 +32,24 @@ impl TaskStateSegment {
 
 impl GlobalDescriptorTable {
     pub const fn new() -> Self {
-        GlobalDescriptorTable([GlobalDescriptorTableSegment::new(); N_DESCRIPTORS])
+        GlobalDescriptorTable([GlobalDescriptorTableSegment::new(); NUMBER_DESCRIPTORS])
     }
 
     pub fn set_segment(&mut self, index: u16, value: u64) {
-        assert!(index < N_DESCRIPTORS as u16);
+        assert!(index < NUMBER_DESCRIPTORS as u16);
 
         self.0[index as usize].set(value);
     }
 
     pub fn set_long_segment(&mut self, index: u16, value: u128) {
-        assert!(index + 1 < N_DESCRIPTORS as u16);
+        assert!(index + 1 < NUMBER_DESCRIPTORS as u16);
 
         self.0[index as usize].set(value as u64);
         self.0[(index + 1) as usize].set((value >> 64) as u64);
     }
 
     pub fn get_pointer(&self) -> u64 {
-        let size = N_DESCRIPTORS * size_of::<u64>() - 1;
+        let size = NUMBER_DESCRIPTORS * size_of::<u64>() - 1;
         let base = self.0.as_ptr() as u64;
         return (base << 16) | (size as u64);
     }

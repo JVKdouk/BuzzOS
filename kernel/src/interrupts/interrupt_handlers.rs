@@ -7,6 +7,7 @@ use crate::{
 
 use super::{
     defs::{InterruptStackFrame, PageFaultErr},
+    irqs::handle_irq,
     system_call::handle_system_call,
 };
 
@@ -52,21 +53,11 @@ pub extern "x86-interrupt" fn general_irq_handler(_frame: InterruptStackFrame) {
 }
 
 #[no_mangle]
-extern "C" fn user_interrupt_handler(trapframe: &mut TrapFrame) {
-    unsafe {
-        // Update trapframe, which contains all registers of the process execution context
-        SCHEDULER
-            .lock()
-            .current_process
-            .as_mut()
-            .unwrap()
-            .set_trapframe(*trapframe);
+extern "C" fn interrupt_manager(trapframe: &mut TrapFrame) {
+    // If Trap Number is 64, then this is a System Call, and not an IRQ
+    if trapframe.trap_number == 64 {
+        return handle_system_call(trapframe);
     }
 
-    let system_call_number = trapframe.eax;
-    let arg0 = trapframe.edi;
-    let arg1 = trapframe.esi;
-    let arg2 = trapframe.edx;
-    let arg3 = trapframe.ecx;
-    handle_system_call(system_call_number, arg0, arg1, arg2, arg3);
+    handle_irq(trapframe);
 }

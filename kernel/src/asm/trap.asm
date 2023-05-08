@@ -1,14 +1,13 @@
 ; Pop all registers from the trap frame, skip elements, and then return to the start of
 ; the process being called.
 
-extern user_interrupt_handler
+extern interrupt_manager
 
 global trap_enter
 global trap_return
 
 trap_enter:
-    push 0  ; Error Code
-    push 64 ; General User Trap Number
+    cli
 
     push ds
     push es
@@ -21,7 +20,7 @@ trap_enter:
     mov es, ax
 
     push esp
-    call user_interrupt_handler
+    call interrupt_manager
     add esp, 4
 
 trap_return:

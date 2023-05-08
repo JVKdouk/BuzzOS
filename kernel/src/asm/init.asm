@@ -12,11 +12,11 @@ init_start:
     mov eax, 0x0
     int 64
 
+    jmp $
+
     ; Yield Process
     mov eax, 0x2
     int 64
-
-    jmp $
     
     ; Exit Process
     mov eax, 0x1

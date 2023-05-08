@@ -51,7 +51,7 @@ macro_rules! PAGE_DIR_INDEX {
 }
 
 /// GDT Definitions
-pub const N_DESCRIPTORS: usize = 7;
+pub const NUMBER_DESCRIPTORS: usize = 7;
 
 pub const KERNEL_CODE_SEGMENT: u16 = 1;
 pub const KERNEL_DATA_SEGMENT: u16 = 2;
@@ -59,22 +59,8 @@ pub const USER_CODE_SEGMENT: u16 = 3;
 pub const USER_DATA_SEGMENT: u16 = 4;
 pub const TASK_STATE_SEGMENT: u16 = 5;
 
-pub const GDT_FLAG_L: u8 = 0x2;
-pub const GDT_FLAG_DB: u8 = 0x4;
-pub const GDT_FLAG_G: u8 = 0x8;
-pub const GDT_TYPE_A: u8 = 0x1;
-pub const GDT_TYPE_RW: u8 = 0x2;
-pub const GDT_TYPE_DC: u8 = 0x4;
-pub const GDT_TYPE_E: u8 = 0x8;
-pub const GDT_RING0: u8 = 0x00;
-pub const GDT_RING1: u8 = 0x20;
-pub const GDT_RING2: u8 = 0x40;
-pub const GDT_RING3: u8 = 0x60;
-pub const GDT_TYPE_S: u8 = 0x10;
-pub const GDT_TYPE_P: u8 = 0x80;
-
 /// Memory Layout
-pub const MEM_BDA: usize = 0x400;
+pub const MEM_BDA: usize = 0x400; // Memory BIOS Data Area
 
 /// VM Definitions
 pub const PAGE_SIZE: usize = 4096;
@@ -88,10 +74,10 @@ pub const KERNEL_LINK: usize = KERNEL_BASE + EXTENDED_MEMORY;
 pub const PAGE_DIR_SHIFT: usize = 22;
 pub const PAGE_TABLE_SHIFT: usize = 12;
 
-pub const PTE_P: usize = 0x001;
-pub const PTE_W: usize = 0x002;
-pub const PTE_U: usize = 0x004;
-pub const PTE_PS: usize = 0x080;
+pub const PTE_P: usize = 0x001; // Present Bit
+pub const PTE_W: usize = 0x002; // Writable Bit
+pub const PTE_U: usize = 0x004; // User Bit
+pub const PTE_PS: usize = 0x080; // Page Size Bit
 
 /// Heap Definitions
 pub const HEAP_PAGES: usize = 25;
@@ -105,7 +91,7 @@ pub struct LinkedListAllocator {
 pub struct GlobalDescriptorTableSegment(pub u64);
 
 #[derive(Clone, Copy, Debug)]
-pub struct GlobalDescriptorTable(pub [GlobalDescriptorTableSegment; N_DESCRIPTORS]);
+pub struct GlobalDescriptorTable(pub [GlobalDescriptorTableSegment; NUMBER_DESCRIPTORS]);
 
 #[derive(Debug)]
 #[repr(C)]

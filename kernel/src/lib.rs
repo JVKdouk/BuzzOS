@@ -22,7 +22,7 @@ extern crate alloc;
 // Interface definition of panic in Rust. Core represents the core library
 use core::panic::PanicInfo;
 
-use crate::x86::helpers::sti;
+use crate::x86::helpers::{cli, sti};
 
 // Uses C calling convention instead of Rust. no_mangle removes name mangling when compiled.
 // _start is the default entry point for most systems. Function is diverging as the Kernel should
@@ -63,6 +63,7 @@ pub unsafe extern "C" fn _start() -> ! {
 // Once the Kernel panics, enter an infinite loop
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
+    cli();
     print!("{}", _info);
     loop {}
 }
