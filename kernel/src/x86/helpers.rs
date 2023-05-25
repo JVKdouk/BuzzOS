@@ -110,7 +110,7 @@ pub fn outb(port: u16, value: u8) {
 }
 
 #[inline]
-pub unsafe fn outw(port: u16, value: u32) {
+pub fn outw(port: u16, value: u32) {
     unsafe {
         asm!(
             "out dx, eax",
@@ -136,7 +136,7 @@ pub fn inb(port: u16) -> u8 {
 }
 
 #[inline]
-pub unsafe fn inw(port: u16) -> u32 {
+pub fn inw(port: u16) -> u32 {
     let value: u32;
     unsafe {
         asm!(
@@ -147,6 +147,34 @@ pub unsafe fn inw(port: u16) -> u32 {
         );
     }
     value
+}
+
+#[inline]
+pub fn outsd(port: u16, address: *const u8, count: usize) {
+    unsafe {
+        asm!(
+            "cld; \
+            rep outsd;",
+            in("edx") port,
+            in("edi") address,
+            in("ecx") count,
+            options(nostack, preserves_flags)
+        );
+    }
+}
+
+#[inline]
+pub fn insd(port: u16, address: *const u8, count: usize) {
+    unsafe {
+        asm!(
+            "cld; \
+            rep insd;",
+            in("edx") port,
+            in("edi") address,
+            in("ecx") count,
+            options(nostack, preserves_flags)
+        );
+    }
 }
 
 #[inline]

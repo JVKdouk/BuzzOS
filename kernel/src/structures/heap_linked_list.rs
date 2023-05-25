@@ -4,6 +4,7 @@ use alloc::boxed::Box;
 
 pub struct HeapLinkedList<T> {
     head: Option<Box<Node<T>>>,
+    pub size: usize,
 }
 
 pub struct Node<T> {
@@ -13,7 +14,10 @@ pub struct Node<T> {
 
 impl<T> HeapLinkedList<T> {
     pub const fn new() -> Self {
-        HeapLinkedList { head: None }
+        HeapLinkedList {
+            head: None,
+            size: 0,
+        }
     }
 
     pub fn push(&mut self, value: T) -> &Node<T> {
@@ -26,6 +30,7 @@ impl<T> HeapLinkedList<T> {
 
         self.head = Some(node);
 
+        self.size += 1;
         self.head.as_ref().unwrap()
     }
 
@@ -33,6 +38,7 @@ impl<T> HeapLinkedList<T> {
         match core::mem::replace(&mut self.head, None) {
             None => None,
             Some(node) => {
+                self.size -= 1;
                 self.head = node.next;
                 Some(node.value)
             }

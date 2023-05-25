@@ -52,6 +52,10 @@ pub unsafe extern "C" fn _start() -> ! {
 
     sti();
 
+    // File System
+    devices::pci::map_pci_buses();
+    filesystem::ide::setup_ide();
+
     // Scheduler
     scheduler::process::spawn_init_process();
     scheduler::scheduler::setup_scheduler();

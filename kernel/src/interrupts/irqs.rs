@@ -1,10 +1,10 @@
 use crate::{
     apic::{
-        defs::{IRQ_COM1, IRQ_KEYBOARD, IRQ_TIMER},
+        defs::{IRQ_COM1, IRQ_IDE, IRQ_KEYBOARD, IRQ_TIMER},
         local_apic::local_apic_acknowledge,
     },
     devices::console::CONSOLE,
-    println,
+    filesystem::ide::interrupt_ide,
     scheduler::{defs::process::TrapFrame, scheduler::SCHEDULER},
 };
 
@@ -17,6 +17,7 @@ pub fn handle_irq(trapframe: &mut TrapFrame) {
         IRQ_TIMER => timer(trapframe),
         IRQ_COM1 => keyboard(trapframe),
         IRQ_KEYBOARD => keyboard(trapframe),
+        IRQ_IDE => interrupt_ide(),
         _ => local_apic_acknowledge(),
     }
 }
