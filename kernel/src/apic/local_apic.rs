@@ -60,12 +60,12 @@ pub fn local_apic_acknowledge() {
 }
 
 fn local_apic_read(register: usize) -> usize {
-    let register_handle = unsafe { LOCAL_APIC.lock().unwrap() };
+    let register_handle = unsafe { LOCAL_APIC.unwrap() as *mut usize };
     unsafe { *register_handle.add(register) }
 }
 
 fn local_apic_write(register: usize, data: usize) {
-    let register_handle = unsafe { LOCAL_APIC.lock().unwrap() };
+    let register_handle = unsafe { LOCAL_APIC.unwrap() as *mut usize };
     unsafe { *register_handle.add(register) = data }
 
     // We must wait for the write to finish. This is done by reading.

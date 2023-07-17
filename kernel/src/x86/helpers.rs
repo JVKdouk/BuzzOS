@@ -30,6 +30,15 @@ pub fn read_cr2() -> usize {
     }
 }
 
+#[inline]
+pub fn read_eflags() -> u32 {
+    unsafe {
+        let mut value: u32;
+        asm!("pushfd; pop {}", out(reg) value, options(nostack, preserves_flags));
+        value
+    }
+}
+
 // ******** Interrupts ********
 
 #[inline]
@@ -153,8 +162,11 @@ pub fn inw(port: u16) -> u32 {
 pub fn outsd(port: u16, address: *const u8, count: usize) {
     unsafe {
         asm!(
-            "cld; \
-            rep outsd;",
+            "push esi; \
+            mov esi, edi; \
+            cld; \
+            rep outsd; \
+            pop esi;",
             in("edx") port,
             in("edi") address,
             in("ecx") count,

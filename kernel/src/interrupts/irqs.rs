@@ -5,10 +5,11 @@ use crate::{
     },
     devices::console::CONSOLE,
     filesystem::ide::interrupt_ide,
+    println,
     scheduler::{defs::process::TrapFrame, scheduler::SCHEDULER},
 };
 
-use super::system_call::_yield;
+use super::system_calls::_yield;
 
 pub fn handle_irq(trapframe: &mut TrapFrame) {
     let irq_number = trapframe.trap_number - 32;
@@ -34,7 +35,6 @@ fn timer(_trapframe: &mut TrapFrame) {
 }
 
 fn keyboard(_trapframe: &mut TrapFrame) {
-    // println!("HERE");
     local_apic_acknowledge();
     CONSOLE.lock().keyboard_interrupt();
 }

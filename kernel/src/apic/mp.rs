@@ -1,10 +1,12 @@
-use core::mem::size_of;
+use core::{cell::UnsafeCell, mem::size_of, sync::atomic::AtomicI32};
 
-use spin::{Mutex, MutexGuard};
+use lazy_static::lazy_static;
 
 use crate::{
     memory::defs::{GlobalDescriptorTable, TaskStateSegment, KERNEL_BASE, MEM_BDA},
+    println,
     scheduler::defs::process::Context,
+    sync::spin_mutex::SpinMutex,
     x86::helpers::{inb, outb},
     P2V,
 };
@@ -19,19 +21,28 @@ pub const MP_IO_APIC: u8 = 0x2;
 pub const MP_IO_INTERRUPT: u8 = 0x3;
 pub const MP_LOCAL_INTERRUPT: u8 = 0x4;
 
-pub static mut CPUS: Mutex<[Option<CPU>; MAX_NUM_CPUS]> = Mutex::new([None; MAX_NUM_CPUS]);
-pub static mut IO_APIC: Mutex<Option<*mut IOApic>> = Mutex::new(None);
-pub static mut LOCAL_APIC: Mutex<Option<*mut usize>> = Mutex::new(None);
+lazy_static! {
+    pub static ref CPUS: [Option<CPU>; MAX_NUM_CPUS] = setup_mp();
+    static ref MP_TABLE: &'static MPFPStructure = unsafe { find_mp_table().as_ref().unwrap() };
+    static ref MP_CONFIG: &'static MPConfigTable = unsafe { &*find_mp_config(&MP_TABLE).unwrap() };
+    pub static ref LOCAL_APIC: Option<usize> = Some(MP_CONFIG.local_apic_address);
+}
 
-#[derive(Clone, Copy, Debug)]
+pub static mut IS_CPU_MAPPED: bool = false;
+pub static mut IO_APIC: SpinMutex<Option<*mut IOApic>> = SpinMutex::new(None);
+
+#[derive(Debug)]
 pub struct CPU {
     pub apic_id: u8,
-    pub context: *mut Context,
-    pub taskstate: Option<TaskStateSegment>,
-    pub gdt: GlobalDescriptorTable,
-    pub number_cli: usize,     // Number of CLI (Clear Interrupt) issued
-    pub interrupt_state: bool, // State of interrupts before pushcli
+    pub context: SpinMutex<Context>,
+    pub taskstate: SpinMutex<Option<TaskStateSegment>>,
+    pub gdt: SpinMutex<GlobalDescriptorTable>,
+    pub number_cli: UnsafeCell<u32>, // Number of CLI (Clear Interrupt) issued
+    pub enable_interrupt: UnsafeCell<bool>, // State of interrupts before pushcli
 }
+
+unsafe impl Sync for CPU {}
+unsafe impl Send for CPU {}
 
 #[repr(C)]
 #[derive(Debug)]
@@ -57,7 +68,7 @@ pub struct MPIOApic {
 
 #[repr(C)]
 #[derive(Debug)]
-struct MPFloatingPointerStructure {
+struct MPFPStructure {
     signature: [u8; 4], // _MP_
     address: usize,
     length: u8,
@@ -76,7 +87,7 @@ struct MPConfigTable {
     version: u8,
     checksum: u8,
     product: [u8; 20],
-    oem_table: *const usize,
+    oem_table: usize,
     oem_length: u16,
     entry: u16,
     local_apic_address: usize, // Access to this address allows for access to the APIC
@@ -86,26 +97,24 @@ struct MPConfigTable {
 }
 
 impl CPU {
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
         CPU {
             apic_id: 0,
-            context: 0 as *mut Context,
-            gdt: GlobalDescriptorTable::new(),
-            interrupt_state: false,
-            number_cli: 0,
-            taskstate: None,
+            context: SpinMutex::new(Default::default()),
+            gdt: SpinMutex::new(GlobalDescriptorTable::new()),
+            taskstate: SpinMutex::new(None),
+            enable_interrupt: UnsafeCell::new(false),
+            number_cli: UnsafeCell::new(0),
         }
     }
 }
 
-pub fn get_my_cpu<'a>(
-    cpus: &'a mut MutexGuard<[Option<CPU>; MAX_NUM_CPUS]>,
-) -> Option<&'a mut CPU> {
+pub fn get_my_cpu<'a>() -> Option<&'a CPU> {
     let apic_id = get_local_apic_id() as u8;
 
-    for cpu in cpus.iter_mut() {
-        if cpu.is_some() && cpu.unwrap().apic_id == apic_id {
-            return Some(cpu.as_mut().unwrap());
+    for cpu in CPUS.iter() {
+        if cpu.is_some() && cpu.as_ref().unwrap().apic_id == apic_id {
+            return Some(cpu.as_ref().unwrap());
         }
     }
     return None;
@@ -119,28 +128,33 @@ pub unsafe fn check_sum(address: *const u8, length: usize) -> u8 {
     return sum as u8;
 }
 
-pub fn setup_mp() {
+pub fn setup_cpus() -> *const Option<CPU> {
+    CPUS.as_ptr()
+}
+
+pub fn setup_mp() -> [Option<CPU>; MAX_NUM_CPUS] {
     let mp_table = unsafe { find_mp_table().as_ref().unwrap() };
     let mp_conf = unsafe { find_mp_config(mp_table).unwrap() };
-
-    // Setup local APIC for this processor
-    unsafe { *LOCAL_APIC.lock() = Some((*mp_conf).local_apic_address as *mut usize) };
-
-    // Extract APIC fields from config table
-    unsafe { parse_config_table(mp_conf) };
 
     if mp_table.imcp > 0 {
         // Interrupt Mode Configuration Register
         outb(0x22, 0x70); // Select IMCR
         outb(0x23, inb(0x23) | 1); // Pass-through NMI interrupts
     }
+
+    println!("[KERNEL] Multiprocessing Tables Fetched");
+
+    // Extract APIC fields from config table
+    return unsafe { parse_config_table(mp_conf) };
 }
 
-unsafe fn parse_config_table(config_table: *const MPConfigTable) {
+unsafe fn parse_config_table(config_table: *const MPConfigTable) -> [Option<CPU>; MAX_NUM_CPUS] {
     let mut start = config_table.offset(1) as *const u8;
     let end = (config_table as *const u8).offset((*config_table).length as isize);
-    let mut cpus = CPUS.lock();
     let mut number_cpus = 0;
+
+    const VALUE: Option<CPU> = None;
+    let mut cpus: [Option<CPU>; MAX_NUM_CPUS] = [VALUE; MAX_NUM_CPUS];
 
     while start < end {
         match *start {
@@ -174,9 +188,11 @@ unsafe fn parse_config_table(config_table: *const MPConfigTable) {
             _ => panic!("[FATAL] MP Table Failure"),
         }
     }
+
+    return cpus;
 }
 
-unsafe fn find_mp_config(mp_table: &MPFloatingPointerStructure) -> Option<*const MPConfigTable> {
+unsafe fn find_mp_config(mp_table: &MPFPStructure) -> Option<*const MPConfigTable> {
     if mp_table.address == 0 {
         panic!("[FATAL] MP invalid address");
     }
@@ -206,7 +222,7 @@ unsafe fn find_mp_config(mp_table: &MPFloatingPointerStructure) -> Option<*const
 /// - First KB of the EBDA (Extended Bios Data Area)
 /// - Last KB of the System Base Memory
 /// - In the BIOS ROM between 0xF0000 and 0xFFFFF
-unsafe fn find_mp_table() -> *const MPFloatingPointerStructure {
+unsafe fn find_mp_table() -> *const MPFPStructure {
     let bda = P2V!(MEM_BDA) as *const u8;
 
     // Get first KB of the EBDA from the BDA
@@ -234,18 +250,15 @@ unsafe fn find_mp_table() -> *const MPFloatingPointerStructure {
 
 /// Explores the provided fragment of memory trying to find the MP Floating Pointer Structure based
 /// on this signature, that is, _MP_.
-unsafe fn check_mp_table(
-    base: *const usize,
-    length: isize,
-) -> Option<*const MPFloatingPointerStructure> {
-    let mut base = P2V!(base as usize) as *const MPFloatingPointerStructure;
+unsafe fn check_mp_table(base: *const usize, length: isize) -> Option<*const MPFPStructure> {
+    let mut base = P2V!(base as usize) as *const MPFPStructure;
     let end = base.byte_offset(length);
 
     loop {
         let current = base.as_ref().unwrap();
         if current.signature.as_slice() == b"_MP_" {
             // According to the MP specification, the MP table should have a checksum of 0
-            let checksum = check_sum(base as *const u8, size_of::<MPFloatingPointerStructure>());
+            let checksum = check_sum(base as *const u8, size_of::<MPFPStructure>());
             if checksum != 0 {
                 panic!("[FATAL] Invalid MP Checksum");
             }

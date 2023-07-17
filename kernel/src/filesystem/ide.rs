@@ -1,27 +1,30 @@
+use core::{future::Future, panic, pin::Pin, task::Poll};
+
 /// IDE Driver Interface responsible for loading and storing data on the disk.
 /// You can read more about the driver here: https://wiki.osdev.org/PCI_IDE_Controller
 use alloc::sync::Arc;
-use spin::Mutex;
 
 use crate::{
     apic::{defs::IRQ_IDE, io_apic::enable_irq, local_apic::local_apic_acknowledge},
     devices::pci::{PCIDevice, IS_PCI_MAPPED, PCI_DEVICES},
-    println,
+    scheduler::sleep::wakeup,
     structures::heap_linked_list::HeapLinkedList,
+    sync::spin_mutex::SpinMutex,
     x86::helpers::{inb, insd, outb, outsd},
 };
 
-static IDE_QUEUE: Mutex<HeapLinkedList<Arc<DiskBlock>>> = Mutex::new(HeapLinkedList::new());
+static IDE_QUEUE: SpinMutex<HeapLinkedList<Arc<SpinMutex<DiskBlock>>>> =
+    SpinMutex::new(HeapLinkedList::new());
 
 const SECTOR_SIZE: usize = 512;
-const BLOCK_SIZE: usize = 512;
+pub const BLOCK_SIZE: usize = 512;
 const IDE_BUSY: u8 = 0x80; // Driver is Busy
 const IDE_READY: u8 = 0x40; // Driver is Ready
 const IDE_FAULT: u8 = 0x20; // Write Fault
 const IDE_ERROR: u8 = 0x01; // An Error Occurred
 
 const IDE_READ: u8 = 0x20;
-const IDE_WRITE: u8 = 0x20;
+const IDE_WRITE: u8 = 0x30;
 
 const IDE_STATUS_REGISTER: u16 = 0x1F7;
 const IDE_COMMAND_REGISTER: u16 = 0x1F7;
@@ -33,14 +36,26 @@ const IDE_CYLINDER_HIGH_REGISTER: u16 = 0x1F5;
 const IDE_DATA_REGISTER: u16 = 0x1F0;
 const IDE_CONTROL_REGISTER: u16 = 0x3F6;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum DiskRequestStatus {
+    READY,
+    AWAITING,
+    FAILED,
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct DiskBlock {
-    dirty: bool,
-    ready: bool,
-    device: u32,
-    block_number: u32,
-    reference_count: u32,
-    data: [u8; BLOCK_SIZE],
+    pub dirty: bool,
+    pub status: DiskRequestStatus,
+    pub device: u32,
+    pub block_number: u32,
+    pub data: [u8; BLOCK_SIZE],
+}
+
+impl DiskBlock {
+    pub fn get_address(&self) -> usize {
+        self as *const DiskBlock as usize
+    }
 }
 
 /// Many IDE operations take time to complete. If the Status Register reports a status of BUSY, the
@@ -91,19 +106,26 @@ pub fn setup_ide() {
     }
 
     // Check if a secondary disk is present. Send IDENTIFY command to secondary IDE drive
+    let mut has_secondary_disk = false;
     outb(0x1F6, 0xF0);
     for _ in 0..1000 {
         if inb(0x1F7) != 0 {
-            println!("Has secondary disk");
+            has_secondary_disk = true;
             break;
         }
+    }
+
+    if !has_secondary_disk {
+        panic!("[ERROR] No File System Disk");
     }
 
     // Switch back to primary disk
     outb(0x1F6, 0xE0);
 }
 
-pub fn start_ide_request(block: &DiskBlock) {
+pub fn start_ide_request(block: &SpinMutex<DiskBlock>) {
+    let block = block.lock();
+
     let sector_per_block = (BLOCK_SIZE / SECTOR_SIZE) as u32;
 
     let sector = block.block_number * sector_per_block;
@@ -138,12 +160,21 @@ pub fn start_ide_request(block: &DiskBlock) {
 /// must be fetched from the IDE buffer.
 pub fn interrupt_ide() {
     let mut ide_queue = IDE_QUEUE.lock();
-    let mut block = ide_queue.pop().unwrap();
+    let mut ide_block = ide_queue.pop();
+    let mut block = ide_block.as_ref().unwrap().lock();
+
+    let wait_result = wait_ide().expect("[ERROR] IDE Failure");
 
     // Request is a read, must transfer data from IDE buffer
-    if !block.dirty && !wait_ide().is_err() {
+    if block.dirty == false {
         insd(IDE_DATA_REGISTER, block.data.as_ptr(), BLOCK_SIZE / 4);
     }
+
+    block.status = DiskRequestStatus::READY;
+    block.dirty = false;
+
+    // Emit wakeup signal to all processes waiting for this block
+    wakeup(block.get_address());
 
     // Request next block to start processing
     if ide_queue.size > 0 {
@@ -156,12 +187,13 @@ pub fn interrupt_ide() {
 
 /// Request IDE operation, either read or write, as defined by the DiskBlock request.
 /// Every request is added to a queue, for which each block is later sent to the IDE to processed.
-pub fn request_ide(block: Arc<DiskBlock>) {
+pub fn request_ide(block: Arc<SpinMutex<DiskBlock>>) {
     let mut ide_queue = IDE_QUEUE.lock();
-    ide_queue.push(block);
+    ide_queue.push(Arc::clone(&block));
 
     if ide_queue.size == 1 {
         let next = ide_queue.peek().unwrap().value.as_ref();
+        unsafe { IDE_QUEUE.force_unlock() };
         start_ide_request(next);
     }
 }

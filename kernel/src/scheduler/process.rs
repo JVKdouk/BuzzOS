@@ -1,6 +1,6 @@
 use core::panic;
 
-use alloc::{string::String, vec::Vec};
+use alloc::{string::String, sync::Arc, vec::Vec};
 
 use super::{
     defs::process::{Context, Process, ProcessList, ProcessState, TrapFrame},
@@ -8,7 +8,7 @@ use super::{
 };
 
 use crate::{
-    apic::mp::{get_my_cpu, CPUS},
+    apic::mp::get_my_cpu,
     memory::{
         defs::{
             Page, KERNEL_BASE, KERNEL_DATA_SEGMENT, PAGE_SIZE, PTE_U, PTE_W, TASK_STATE_SEGMENT,
@@ -17,9 +17,13 @@ use crate::{
         mem::{memmove, memset},
         vm::{allocate_page, map_pages, setup_kernel_page_tables},
     },
+    sync::{
+        cpu_cli::{pop_cli, push_cli},
+        spin_mutex::{SpinMutex, SpinMutexGuard},
+    },
     x86::{
         defs::PrivilegeLevel,
-        helpers::{cli, load_cr3, ltr, sti},
+        helpers::{load_cr3, ltr},
     },
     V2P,
 };
@@ -29,52 +33,42 @@ impl ProcessList {
         ProcessList(Vec::new())
     }
 
-    pub fn get_pid(&self, pid: usize) -> Option<Process> {
+    pub fn get_pid(&self, pid: usize) -> Option<Arc<SpinMutex<Process>>> {
         if pid > self.0.len() {
             panic!("[FATAL] PID out of bounds");
         }
 
-        self.0.get(pid).cloned()
-    }
-
-    pub fn update_process(&mut self, pid: usize, process: Process) {
-        if pid > self.0.len() {
-            panic!("[FATAL] PID out of bounds");
+        match self.0.iter().find(|process| process.lock().pid == pid) {
+            Some(process) => Some(Arc::clone(process)),
+            None => None,
         }
-
-        self.0[pid] = process;
-    }
-
-    pub fn kill_pid(&mut self, pid: usize) {
-        if pid > self.0.len() {
-            panic!("[FATAL] PID out of bounds");
-        }
-
-        self.0[pid].state = ProcessState::EMPTY;
     }
 
     /// Allocation of process requires an empty slot. Finds the next empty slot
     /// to allocate the process.
-    pub fn set_empty_slot(&mut self, mut process: Process) -> Option<usize> {
-        match self.0.iter().position(|p| p.state == ProcessState::EMPTY) {
+    pub fn insert_process(&mut self, mut process: Process) -> Option<usize> {
+        match self
+            .0
+            .iter()
+            .position(|p| p.lock().state == ProcessState::EMPTY)
+        {
             Some(pid) => {
                 process.pid = pid;
-                self.0[pid] = process;
+                self.0[pid] = Arc::new(SpinMutex::new(process));
                 Some(pid)
             }
             None => {
                 process.pid = self.0.len();
-                self.0.push(process);
+                self.0.push(Arc::new(SpinMutex::new(process)));
                 Some(self.0.len() - 1)
             }
         }
     }
 
-    pub fn get_next_ready(&self) -> Option<Process> {
+    pub fn get_next_ready(&self) -> Option<&Arc<SpinMutex<Process>>> {
         self.0
             .iter()
-            .find(|p| p.state == ProcessState::READY)
-            .cloned()
+            .find(|p| p.lock().state == ProcessState::READY)
     }
 }
 
@@ -89,12 +83,14 @@ impl Process {
             trapframe: None,
             kernel_stack: None,
             pgdir: None,
+            sleep_object: 0,
             pid,
         }
     }
 
     pub fn set_trapframe(&mut self, trapframe: TrapFrame) {
         unsafe {
+            // (*self.trapframe.unwrap()).eax = trapframe.eax;
             *self.trapframe.unwrap() = trapframe;
         }
     }
@@ -142,20 +138,20 @@ pub unsafe fn spawn_process() -> Result<usize, &'static str> {
     (*process.context.unwrap()).eip = trap_return as *const () as usize;
 
     // Return the pid for the newly created process slot
-    match PROCESS_LIST.lock().set_empty_slot(process) {
+    match PROCESS_LIST.lock().insert_process(process) {
         Some(pid) => Ok(pid),
         None => Err("Could not allocate"),
     }
 }
 
-unsafe fn set_user_tss(process: &Process) {
-    let mut cpus = CPUS.lock();
-    let cpu = get_my_cpu(&mut cpus).unwrap();
-    let mut task_state = cpu.taskstate.as_mut().unwrap();
-    let gdt = &mut cpu.gdt;
+unsafe fn set_user_tss(process: &SpinMutexGuard<Process>) {
+    let cpu = get_my_cpu().unwrap();
+    let mut task_lock = cpu.taskstate.lock();
+    let mut task_state = task_lock.as_mut().unwrap();
+    let gdt = &mut cpu.gdt.lock();
 
     gdt.set_long_segment(TASK_STATE_SEGMENT, task_state.get_segment() as u128);
-    task_state.esp0 = process.kernel_stack.unwrap().offset(PAGE_SIZE as isize) as u32;
+    task_state.esp0 = process.kernel_stack.unwrap() as u32 + PAGE_SIZE as u32;
     task_state.ss0 = (KERNEL_DATA_SEGMENT << 3) as u16;
     task_state.iopb = 0xFFFF;
 
@@ -166,15 +162,17 @@ unsafe fn set_user_tss(process: &Process) {
 /// not yet change the DPL or CPL, as this is done at a later step. Since Kernel memory is
 /// entirely mapped for every process, the process can continue executing after the memory is
 /// switched.
-pub unsafe fn switch_user_virtual_memory(process: &Process) {
-    let page_dir = process
+pub unsafe fn switch_user_virtual_memory(process: &Arc<SpinMutex<Process>>) {
+    let process_lock = process.lock();
+    let page_dir = process_lock
         .pgdir
         .expect("[FATAL] Process has no page directory") as usize;
 
-    cli();
-    set_user_tss(process);
+    // TODO: Switch to push-cli and pop-cli
+    push_cli();
+    set_user_tss(&process_lock);
     load_cr3(V2P!(page_dir));
-    sti();
+    pop_cli();
 }
 
 /// Migrate from Kernel Virtual Memory to User Virtual Memory. Notice that
@@ -200,12 +198,14 @@ pub unsafe fn setup_user_virtual_memory(page_dir: Page, address: *const usize, s
 pub unsafe fn spawn_init_process() {
     let process_pid = spawn_process().expect("[FATAL] Failed to start init process");
     let mut process = PROCESS_LIST.lock().get_pid(process_pid).unwrap();
+    let mut process_lock = process.lock();
 
     let kernel_pgdir = setup_kernel_page_tables().expect("[FATAL] Failed to setup Kernel pages");
+
     let user_code_selector = (USER_CODE_SEGMENT << 3) as u16 | PrivilegeLevel::Ring3 as u16;
     let user_data_selector = (USER_DATA_SEGMENT << 3) as u16 | PrivilegeLevel::Ring3 as u16;
 
-    process.pgdir = Some(kernel_pgdir.address as *mut usize);
+    process_lock.pgdir = Some(kernel_pgdir.address as *mut usize);
 
     setup_user_virtual_memory(
         kernel_pgdir,
@@ -214,17 +214,15 @@ pub unsafe fn spawn_init_process() {
     );
 
     // Setup Trapframe
-    (*process.trapframe.unwrap()).esp = PAGE_SIZE;
-    (*process.trapframe.unwrap()).eip = 0;
-    (*process.trapframe.unwrap()).cs = user_code_selector;
-    (*process.trapframe.unwrap()).ds = user_data_selector;
-    (*process.trapframe.unwrap()).es = user_data_selector;
-    (*process.trapframe.unwrap()).ss = user_data_selector;
-    (*process.trapframe.unwrap()).eflags = 0x200;
+    (*process_lock.trapframe.unwrap()).esp = PAGE_SIZE;
+    (*process_lock.trapframe.unwrap()).eip = 0;
+    (*process_lock.trapframe.unwrap()).cs = user_code_selector;
+    (*process_lock.trapframe.unwrap()).ds = user_data_selector;
+    (*process_lock.trapframe.unwrap()).es = user_data_selector;
+    (*process_lock.trapframe.unwrap()).ss = user_data_selector;
+    (*process_lock.trapframe.unwrap()).eflags = 0x200;
 
     // Setup Misc
-    process.name = String::from("init");
-    process.state = ProcessState::READY;
-
-    PROCESS_LIST.lock().update_process(process_pid, process);
+    process_lock.name = String::from("init");
+    process_lock.state = ProcessState::READY;
 }

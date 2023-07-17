@@ -1,4 +1,5 @@
 use crate::{
+    filesystem::{cache::test_cache, fs::setup_file_system},
     interrupts::defs::system_call as SystemCall,
     println,
     scheduler::{
@@ -18,12 +19,7 @@ fn panic_undefined_syscall() {
 pub fn handle_system_call(trapframe: &mut TrapFrame) {
     unsafe {
         // Update trapframe, which contains all registers of the process execution context
-        SCHEDULER
-            .lock()
-            .current_process
-            .as_mut()
-            .unwrap()
-            .set_trapframe(*trapframe);
+        SCHEDULER.lock().set_trapframe(trapframe);
     }
 
     let system_call_number = trapframe.eax;
@@ -36,14 +32,15 @@ pub fn handle_system_call(trapframe: &mut TrapFrame) {
         SystemCall::PRINT_TRAP_FRAME => print_trapframe(),
         SystemCall::EXIT => exit(),
         SystemCall::YIELD => _yield(),
+        SystemCall::SLEEP => test_cache(),
+        SystemCall::SETUP_FS => setup_file_system(),
         _ => panic_undefined_syscall(),
     };
 }
 
 pub fn print_trapframe() {
     let scheduler = unsafe { SCHEDULER.lock() };
-    let current_process = scheduler.current_process.as_ref().unwrap();
-    let trapframe = current_process.get_trapframe().unwrap();
+    let trapframe = unsafe { *scheduler.get_trapframe().unwrap() };
     println!("{:#?}", trapframe);
 }
 
@@ -54,7 +51,7 @@ pub fn _yield() {
 pub fn exit() {
     unsafe {
         let mut scheduler = SCHEDULER.lock();
-        scheduler.current_process.as_mut().unwrap().state = ProcessState::KILLED;
+        scheduler.current_process.as_mut().unwrap().lock().state = ProcessState::KILLED;
         scheduler.resume();
     }
 }

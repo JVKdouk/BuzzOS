@@ -1,5 +1,7 @@
 pub mod process {
-    use alloc::{string::String, vec::Vec};
+    use alloc::{string::String, sync::Arc, vec::Vec};
+
+    use crate::sync::spin_mutex::SpinMutex;
 
     #[derive(Debug, Copy, Clone, PartialEq)]
     pub enum ProcessState {
@@ -8,6 +10,7 @@ pub mod process {
         RUNNING,
         READY,
         KILLED,
+        SLEEPING,
     }
 
     #[repr(C)]
@@ -69,14 +72,19 @@ pub mod process {
         pub trapframe: Option<*mut TrapFrame>,
         pub kernel_stack: Option<*mut usize>,
         pub mem_size: usize,
+        pub sleep_object: usize,
         pub current_working_directory: String,
         pub name: String,
     }
 
-    pub struct ProcessList(pub Vec<Process>);
+    pub struct ProcessList(pub Vec<Arc<SpinMutex<Process>>>);
 }
 
 pub mod scheduler {
+    use alloc::sync::Arc;
+
+    use crate::sync::spin_mutex::SpinMutex;
+
     use super::process::{Context, Process};
 
     // Number of processes that can run at the same time.
@@ -88,7 +96,7 @@ pub mod scheduler {
     }
 
     pub struct Scheduler {
-        pub current_process: Option<Process>,
+        pub current_process: Option<Arc<SpinMutex<Process>>>,
         pub context: *mut Context,
         pub status: SchedulerState,
     }

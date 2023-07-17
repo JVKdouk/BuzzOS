@@ -5,7 +5,6 @@ edition = "2018"
 
 [dependencies]
 volatile = "0.2.6" # Volatile allows finer grain control of the compiler
-spin = "0.5.2"
 bitflags = "1.0.4"
 
 [dependencies.lazy_static]

@@ -1,15 +1,15 @@
-use alloc::vec::Vec;
-use spin::Mutex;
+use alloc::vec::{self, Vec};
 
 use crate::{
     println,
+    sync::spin_mutex::SpinMutex,
     x86::helpers::{inw, outw},
 };
 
 const PCI_CONFIG_REGISTER: u16 = 0xCF8;
 const PCI_DATA_REGISTER: u16 = 0xCFC;
 
-pub static PCI_DEVICES: Mutex<Vec<PCIDevice>> = Mutex::new(Vec::new());
+pub static PCI_DEVICES: SpinMutex<Vec<PCIDevice>> = SpinMutex::new(Vec::new());
 pub static mut IS_PCI_MAPPED: bool = false;
 
 #[derive(Debug, Clone, Copy)]

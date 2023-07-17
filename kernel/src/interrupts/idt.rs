@@ -2,13 +2,7 @@ use core::{marker::PhantomData, mem::size_of};
 
 use lazy_static::lazy_static;
 
-use crate::{
-    apic::defs::{IRQ_COM1, IRQ_KEYBOARD, IRQ_TIMER},
-    interrupts::interrupt_handlers::*,
-    interrupts::irqs,
-    println,
-    x86::helpers::lidt,
-};
+use crate::{interrupts::interrupt_handlers::*, println, x86::helpers::lidt};
 
 use super::defs::*;
 
@@ -158,7 +152,8 @@ lazy_static! {
 
         // Setup User System Call Interrupt Handler
         global_idt.gp_interrupts[32].set_flags(
-            GateFlags::TRAPGATE as u8 | GateFlags::PRESENT as u8 | GateFlags::DPL3 as u8);
+            GateFlags::TRAPGATE as u8 | GateFlags::PRESENT as u8 | GateFlags::DPL3 as u8
+        );
 
         // Setup Handler
         global_idt.div_by_zero.set_handler_fn(div_by_zero_handler);
@@ -168,6 +163,7 @@ lazy_static! {
         global_idt.page_fault.set_handler_fn(page_fault);
         global_idt.overflow.set_handler_fn(overflow);
         global_idt.bound_range_exceeded.set_handler_fn(bound_range);
+        global_idt.invalid_tss.set_handler_fn(invalid_tss);
         global_idt
     };
 }

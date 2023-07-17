@@ -1,9 +1,9 @@
-use crate::x86::helpers::outb;
+use crate::x86::helpers::{outb, sti};
 
 use self::{
     io_apic::{check_apic, setup_io_apic},
     local_apic::setup_local_apic,
-    mp::setup_mp,
+    mp::{setup_mp, IS_CPU_MAPPED},
 };
 
 pub mod defs;
@@ -17,6 +17,11 @@ pub fn setup_apic() {
     disable_pic();
     setup_local_apic();
     setup_io_apic();
+}
+
+pub fn conclude() {
+    unsafe { IS_CPU_MAPPED = true };
+    sti();
 }
 
 pub fn disable_pic() {

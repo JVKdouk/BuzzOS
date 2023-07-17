@@ -1,32 +1,34 @@
 use alloc::alloc::{GlobalAlloc, Layout};
-use spin::Mutex;
 
 use crate::{
-    memory::mem::MEMORY_REGION, println, structures::static_linked_list::StaticLinkedListNode,
+    memory::mem::MEMORY_REGION,
+    println,
+    structures::static_linked_list::StaticLinkedListNode,
+    sync::spin_mutex::{SpinMutex, SpinMutexGuard},
     ROUND_UP,
 };
 
 use super::defs::{LinkedListAllocator, HEAP_PAGES, PAGE_SIZE};
 
 pub struct Locked<A> {
-    inner: spin::Mutex<A>,
+    inner: SpinMutex<A>,
 }
 
 impl<A> Locked<A> {
     pub const fn new(inner: A) -> Self {
         Locked {
-            inner: spin::Mutex::new(inner),
+            inner: SpinMutex::new(inner),
         }
     }
 
-    pub fn lock(&self) -> spin::MutexGuard<A> {
+    pub fn lock(&self) -> SpinMutexGuard<A> {
         self.inner.lock()
     }
 }
 
 #[global_allocator]
 pub static HEAP_ALLOCATOR: Locked<LinkedListAllocator> = Locked::new(LinkedListAllocator::new());
-pub static IS_HEAP_ENABLED: Mutex<bool> = Mutex::new(false);
+pub static IS_HEAP_ENABLED: SpinMutex<bool> = SpinMutex::new(false);
 
 /// Heap Allocator is defined below. Rust no_std environment requires us
 /// to define our own allocator. As such, our goal is to first identify what

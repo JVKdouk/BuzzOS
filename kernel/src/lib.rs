@@ -8,12 +8,14 @@
 
 pub mod devices;
 pub mod apic;
+pub mod debug;
 pub mod filesystem;
 pub mod interrupts;
 pub mod memory;
 pub mod misc;
 pub mod scheduler;
 pub mod structures;
+pub mod sync;
 pub mod threading;
 pub mod x86;
 
@@ -22,7 +24,7 @@ extern crate alloc;
 // Interface definition of panic in Rust. Core represents the core library
 use core::panic::PanicInfo;
 
-use crate::x86::helpers::{cli, sti};
+use crate::{sync::cpu_cli::push_cli, x86::helpers::cli};
 
 // Uses C calling convention instead of Rust. no_mangle removes name mangling when compiled.
 // _start is the default entry point for most systems. Function is diverging as the Kernel should
@@ -38,7 +40,7 @@ pub unsafe extern "C" fn _start() -> ! {
     memory::heap::setup_heap();
 
     // Setup Hardware Interrupts and Multiprocessing
-    apic::mp::setup_mp();
+    apic::mp::setup_cpus();
     apic::local_apic::setup_local_apic();
     apic::io_apic::setup_io_apic();
     apic::disable_pic();
@@ -49,8 +51,7 @@ pub unsafe extern "C" fn _start() -> ! {
     // Setup Interrupts
     devices::console::setup_console();
     interrupts::idt::setup_idt();
-
-    sti();
+    apic::conclude();
 
     // File System
     devices::pci::map_pci_buses();
@@ -67,7 +68,7 @@ pub unsafe extern "C" fn _start() -> ! {
 // Once the Kernel panics, enter an infinite loop
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
-    cli();
+    push_cli();
     print!("{}", _info);
     loop {}
 }

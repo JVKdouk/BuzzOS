@@ -1,10 +1,12 @@
 use core::fmt;
 use lazy_static::lazy_static;
-use spin::Mutex;
 
-use crate::apic::{
-    defs::{IRQ_COM1, IRQ_KEYBOARD},
-    io_apic::enable_irq,
+use crate::{
+    apic::{
+        defs::{IRQ_COM1, IRQ_KEYBOARD},
+        io_apic::enable_irq,
+    },
+    sync::spin_mutex::SpinMutex,
 };
 
 use super::uart::{uart_get_char, uart_put_char};
@@ -37,7 +39,7 @@ impl Console {
 }
 
 lazy_static! {
-    pub static ref CONSOLE: Mutex<Console> = Mutex::new(Console {});
+    pub static ref CONSOLE: SpinMutex<Console> = SpinMutex::new(Console {});
 }
 
 pub fn print_char_strategy_manager(c: char) {

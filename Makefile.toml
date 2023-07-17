@@ -54,6 +54,16 @@ script = [
     # "cp ../users/x86-target/debug",
 ]
 
+# Build File System
+[tasks.build_fs]
+dependencies = ["clean"]
+workspace = false
+script = [
+    "echo TESTING | dd of=build/fs.img bs=4096",
+    "echo ABCBASUCJASCNJASUKC | dd of=build/fs.img bs=4096 seek=1",
+    # "dd if=/dev/zero of=build/fs.img count=10000 seek=2",
+]
+
 # Build Kernel
 [tasks.build_kernel]
 dependencies = ["clean"]
@@ -79,7 +89,7 @@ script = [
 
 # Build bootloader asm files
 [tasks.build_run]
-dependencies = ["build_kernel", "build_bootloader"]
+dependencies = ["build_kernel", "build_bootloader", "build_fs"]
 workspace = false
 script = [
     # Generate disk image
@@ -89,12 +99,12 @@ script = [
     "rm build/boot.bin",
     
     # Start OS
-    "qemu-system-i386 -nographic -drive file=build/buzz.img,index=0,media=disk,format=raw -smp 1 -M pc-i440fx-6.1 -no-shutdown -no-reboot -m 512",
+    "qemu-system-i386 -nographic -drive file=build/fs.img,index=1,media=disk -drive file=build/buzz.img,index=0,media=disk,format=raw -smp 1 -M pc-i440fx-6.1 -no-shutdown -no-reboot -m 512",
 ]
 
 # Build bootloader asm files
 [tasks.gdb]
-dependencies = ["build_kernel", "build_bootloader"]
+dependencies = ["build_kernel", "build_bootloader", "build_fs"]
 workspace = false
 script = [
     # Generate disk image
@@ -104,7 +114,7 @@ script = [
     "rm build/boot.bin",
     
     # Start OS
-    "qemu-system-i386 -s -S -drive file=build/buzz.img,index=0,media=disk,format=raw -smp 2 -no-reboot -no-shutdown -nographic -serial mon:stdio -m 512",
+    "qemu-system-i386 -s -S -drive file=fs.img,index=1,media=disk,format=raw -drive file=build/buzz.img,index=0,media=disk,format=raw -smp 2 -no-reboot -no-shutdown -nographic -serial mon:stdio -m 512 -d int",
 ]
 
 [tasks.dry-run]

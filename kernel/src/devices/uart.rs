@@ -4,15 +4,17 @@ use core::panic;
 /// allows us to setup UART configuration and send our first bit of data.
 /// More information can be found here https://wiki.osdev.org/UART.
 use lazy_static::lazy_static;
-use spin::Mutex;
 
-use crate::x86::helpers::{inb, outb};
+use crate::{
+    sync::spin_mutex::SpinMutex,
+    x86::helpers::{inb, outb},
+};
 
 use super::defs::COM1;
 
 // Ensures safety when talking to UART
 lazy_static! {
-    pub static ref IS_UART_ENABLED: Mutex<bool> = Mutex::new(false);
+    pub static ref IS_UART_ENABLED: SpinMutex<bool> = SpinMutex::new(false);
 }
 
 /// Initialize UART and perform its configuration. In case UART is not avaialable, it returns an error.

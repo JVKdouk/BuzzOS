@@ -1,21 +1,24 @@
-use spin::Mutex;
+use alloc::sync::Arc;
 
 use crate::{
+    apic::mp::get_my_cpu,
+    debug::{debug_cpu, debug_process_list, interrupts::decode_eflags},
     memory::defs::KERNEL_BASE,
     memory::vm::KERNEL_PAGE_DIR,
     println,
-    scheduler::process::switch_user_virtual_memory,
-    x86::helpers::{load_cr3, sti},
+    scheduler::{process::switch_user_virtual_memory, sleep::wakeup},
+    sync::spin_mutex::SpinMutex,
+    x86::helpers::{hlt, load_cr3, sti},
     V2P,
 };
 
 use super::defs::{
-    process::{Context, ProcessList, ProcessState, TrapFrame},
+    process::{Context, Process, ProcessList, ProcessState, TrapFrame},
     scheduler::{Scheduler, SchedulerState},
 };
 
-pub static mut PROCESS_LIST: Mutex<ProcessList> = Mutex::new(ProcessList::new());
-pub static mut SCHEDULER: Mutex<Scheduler> = Mutex::new(Scheduler::new());
+pub static mut PROCESS_LIST: SpinMutex<ProcessList> = SpinMutex::new(ProcessList::new());
+pub static mut SCHEDULER: SpinMutex<Scheduler> = SpinMutex::new(Scheduler::new());
 
 extern "C" {
     fn switch(scheduler_context: *mut *mut Context, process_context: *mut Context);
@@ -30,9 +33,17 @@ impl Scheduler {
         }
     }
 
+    pub fn get_current_process(&self) -> Option<Arc<SpinMutex<Process>>> {
+        match self.current_process.as_ref() {
+            None => None,
+            Some(process) => Some(Arc::clone(process)),
+        }
+    }
+
     pub fn set_trapframe(&mut self, trapframe: *mut TrapFrame) {
-        let process = self.current_process.as_mut().unwrap();
-        let process_trapframe = process.trapframe.unwrap();
+        let mut process = self.current_process.as_ref().unwrap();
+        let mut process_lock = process.lock();
+        let mut process_trapframe = process_lock.trapframe.unwrap();
 
         unsafe {
             *process_trapframe = *trapframe;
@@ -41,58 +52,74 @@ impl Scheduler {
 
     pub fn get_trapframe(&self) -> Option<*mut TrapFrame> {
         match self.current_process.is_none() {
-            true => return None,
-            false => self.current_process.as_ref().unwrap().trapframe,
+            true => None,
+            false => {
+                let mut process = self.current_process.as_ref().unwrap();
+                let mut process_lock = process.lock();
+                process_lock.trapframe.clone()
+            }
         }
     }
 
     pub unsafe fn resume(&mut self) {
-        let mut process_list = PROCESS_LIST.lock();
+        let mut process = self.current_process.as_ref().unwrap();
+        let mut process_lock = process.lock();
 
-        // Save current state of the process back to the process list
-        let mut current_process = self.current_process.as_mut().unwrap();
-        let is_killed = current_process.state == ProcessState::KILLED;
-        current_process.state = if is_killed {
-            ProcessState::EMPTY
-        } else {
+        // Handle current process state
+        process_lock.state = if process_lock.state == ProcessState::RUNNING {
             ProcessState::READY
+        } else {
+            process_lock.state
         };
 
-        process_list.update_process(current_process.pid, current_process.clone());
-
         // Prepare process context for switching
-        let process_context = current_process.context.as_mut().unwrap();
+        let process_context = process_lock.context.as_mut().unwrap();
 
         SCHEDULER.force_unlock();
         PROCESS_LIST.force_unlock();
+        process.force_unlock();
+
+        let cpu = get_my_cpu().unwrap();
+        let mut enable_interrupts = unsafe { &mut *cpu.enable_interrupt.get() };
+        let interrupt_status = *enable_interrupts;
         switch(process_context, self.context);
+        *enable_interrupts = interrupt_status;
     }
 
     pub unsafe fn run_scheduler(&mut self) {
         SCHEDULER.force_unlock();
 
         loop {
-            // No need to unlock here, lock is droped automatically
-            let Some(mut process) = PROCESS_LIST.lock().get_next_ready() else {
+            let mut process_list = PROCESS_LIST.lock();
+
+            // No need to unlock here, lock is dropped automatically
+            let Some(mut process) = process_list.get_next_ready() else {
+                PROCESS_LIST.force_unlock();
+                core::hint::spin_loop(); // Hint to the processor that it should save power here
                 continue;
             };
 
-            let process_context = process.context.expect("[FATAL] No Context");
+            let mut process_lock = process.lock();
+            let process_context = process_lock.context.expect("[FATAL] No Context");
+            process_lock.state = ProcessState::RUNNING;
 
             // Update Scheduler and Process States
-            process.state = ProcessState::RUNNING;
             self.status = SchedulerState::BUSY;
-            self.current_process = Some(process);
+            self.current_process = Some(Arc::clone(process));
+
+            PROCESS_LIST.force_unlock();
+            process.force_unlock();
 
             unsafe {
-                switch_user_virtual_memory(self.current_process.as_ref().unwrap());
+                switch_user_virtual_memory(process);
                 switch(&mut self.context, process_context);
                 switch_kernel_virtual_memory();
             };
 
-            sti();
-
+            self.current_process = None;
             self.status = SchedulerState::READY;
+
+            sti();
         }
     }
 }

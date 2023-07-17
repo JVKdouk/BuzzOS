@@ -3,13 +3,13 @@
 use alloc::boxed::Box;
 
 pub struct HeapLinkedList<T> {
-    head: Option<Box<Node<T>>>,
+    pub head: Option<Box<Node<T>>>,
     pub size: usize,
 }
 
 pub struct Node<T> {
     pub value: T,
-    pub next: Option<Box<Node<T>>>,
+    pub next: Option<Box<Node<T>>>
 }
 
 impl<T> HeapLinkedList<T> {
@@ -21,15 +21,14 @@ impl<T> HeapLinkedList<T> {
     }
 
     pub fn push(&mut self, value: T) -> &Node<T> {
-        let previous_head = core::mem::replace(&mut self.head, None);
+        let mut previous_head = core::mem::replace(&mut self.head, None);
 
         let node = Box::new(Node {
             value,
-            next: previous_head,
+            next: previous_head
         });
 
         self.head = Some(node);
-
         self.size += 1;
         self.head.as_ref().unwrap()
     }

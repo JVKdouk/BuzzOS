@@ -4,9 +4,8 @@
 /// top of physical memory) into pages. By doing it this way, we don't have to map all pages to
 /// the free list at boot time, only when a page is freed.
 use lazy_static::lazy_static;
-use spin::Mutex;
 
-use crate::{x86::helpers::stosb, P2V, ROUND_UP};
+use crate::{sync::spin_mutex::SpinMutex, x86::helpers::stosb, P2V, ROUND_UP};
 
 use super::defs::{MemoryRegion, Page, KERNEL_BASE};
 
@@ -14,13 +13,13 @@ extern "C" {
     static KERNEL_END: u8;
 }
 
-pub static mut PHYSICAL_TOP: Mutex<usize> = Mutex::new(0xE000000);
+pub static mut PHYSICAL_TOP: SpinMutex<usize> = SpinMutex::new(0xE000000);
 
 lazy_static! {
-    pub static ref MEMORY_REGION: Mutex<MemoryRegion> = {
+    pub static ref MEMORY_REGION: SpinMutex<MemoryRegion> = {
         let start = unsafe { ROUND_UP!(&KERNEL_END as *const u8 as usize, 4096) };
         let end = P2V!(unsafe { *PHYSICAL_TOP.lock() });
-        Mutex::new(MemoryRegion::new(start, end))
+        SpinMutex::new(MemoryRegion::new(start, end))
     };
 }
 

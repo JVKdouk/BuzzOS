@@ -19,7 +19,7 @@ impl TaskStateSegment {
         let limit_0_15 = tss_size & 0xFFFF;
         let limit_16_19 = (tss_size >> 16) & 0xF;
         let access_byte = 0x89;
-        let flags = 0x0;
+        let flags = 0x4;
 
         return (base_24_31 << 56)
             | (flags << 52)
@@ -110,13 +110,13 @@ impl DescriptorFlags {
 }
 
 pub fn setup_local_gdt() {
-    let mut cpus = unsafe { CPUS.lock() };
-    let mut cpu = get_my_cpu(&mut cpus).unwrap();
-    let gdt = &mut cpu.gdt;
+    let mut cpu = get_my_cpu().unwrap();
+    let mut gdt = &mut cpu.gdt.lock();
+    let mut taskstate = cpu.taskstate.lock();
 
     // Setup TSS, used when switching between DPLs
-    cpu.taskstate = Some(TaskStateSegment::new());
-    let tss = cpu.taskstate.as_ref().unwrap().get_segment();
+    *taskstate = Some(TaskStateSegment::new());
+    let tss = taskstate.as_ref().unwrap().get_segment();
 
     gdt.set_segment(KERNEL_CODE_SEGMENT, DescriptorFlags::KERNEL_CODE);
     gdt.set_segment(KERNEL_DATA_SEGMENT, DescriptorFlags::KERNEL_DATA);
@@ -124,7 +124,7 @@ pub fn setup_local_gdt() {
     gdt.set_segment(USER_DATA_SEGMENT, DescriptorFlags::USER_DATA);
     gdt.set_long_segment(TASK_STATE_SEGMENT, tss as u128);
 
-    cpu.gdt.refresh();
+    gdt.refresh();
 }
 
 pub fn setup_gdt() {

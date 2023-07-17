@@ -1,7 +1,6 @@
 use core::panic;
 
 use lazy_static::lazy_static;
-use spin::Mutex;
 
 use super::{
     defs::*,
@@ -9,8 +8,12 @@ use super::{
     mem::{MEMORY_REGION, PHYSICAL_TOP},
 };
 use crate::{
-    memory::mem::memset, println, structures::heap_linked_list::HeapLinkedList,
-    x86::helpers::load_cr3, P2V, PAGE_DIR_INDEX, PAGE_TABLE_INDEX, ROUND_DOWN, ROUND_UP, V2P,
+    memory::mem::memset,
+    println,
+    structures::heap_linked_list::HeapLinkedList,
+    sync::spin_mutex::SpinMutex,
+    x86::helpers::{cli, hlt, load_cr3, read_cr3},
+    P2V, PAGE_DIR_INDEX, PAGE_TABLE_INDEX, ROUND_DOWN, ROUND_UP, V2P,
 };
 
 extern "C" {
@@ -18,42 +21,43 @@ extern "C" {
 }
 
 lazy_static! {
-    static ref KERNEL_MEMORY_LAYOUT: Mutex<[MemoryLayoutEntry; 4]> = Mutex::new([
-    // I/O Address Space
-    MemoryLayoutEntry {
-        virt: KERNEL_BASE as *const usize,
-        phys_start: 0,
-        phys_end: EXTENDED_MEMORY,
-        perm: PTE_W,
-    },
-    // Kernel Text + Read Only Data
-    MemoryLayoutEntry {
-        virt: KERNEL_LINK as *const usize,
-        phys_start: V2P!(KERNEL_LINK),
-        phys_end: unsafe { V2P!(&KERNEL_DATA as *const u8 as usize) },
-        perm: 0,
-    },
-    // Kernel Data + Memory
-    MemoryLayoutEntry {
-        virt: unsafe { &KERNEL_DATA as *const u8 as *const usize },
-        phys_start: unsafe { V2P!(&KERNEL_DATA as *const u8 as usize) },
-        phys_end: unsafe { *PHYSICAL_TOP.lock() },
-        perm: PTE_W,
-    },
-    // Other Devices
-    MemoryLayoutEntry {
-        virt: DEVICE_SPACE as *const usize,
-        phys_start: DEVICE_SPACE,
-        phys_end: 0,
-        perm: PTE_W,
-    },
-]);
+    static ref KERNEL_MEMORY_LAYOUT: SpinMutex<[MemoryLayoutEntry; 4]> = SpinMutex::new([
+        // I/O Address Space
+        MemoryLayoutEntry {
+            virt: KERNEL_BASE as *const usize,
+            phys_start: 0,
+            phys_end: EXTENDED_MEMORY,
+            perm: PTE_W,
+        },
+        // Kernel Text + Read Only Data
+        MemoryLayoutEntry {
+            virt: KERNEL_LINK as *const usize,
+            phys_start: V2P!(KERNEL_LINK),
+            phys_end: unsafe { V2P!(&KERNEL_DATA as *const u8 as usize) },
+            perm: 0,
+        },
+        // Kernel Data + Memory
+        MemoryLayoutEntry {
+            virt: unsafe { &KERNEL_DATA as *const u8 as *const usize },
+            phys_start: unsafe { V2P!(&KERNEL_DATA as *const u8 as usize) },
+            phys_end: unsafe { *PHYSICAL_TOP.lock() },
+            perm: PTE_W,
+        },
+        // Other Devices
+        MemoryLayoutEntry {
+            virt: DEVICE_SPACE as *const usize,
+            phys_start: DEVICE_SPACE,
+            phys_end: 0,
+            perm: PTE_W,
+        },
+    ]);
 }
 
-pub static KERNEL_PAGE_DIR: Mutex<Option<usize>> = Mutex::new(None);
+pub static KERNEL_PAGE_DIR: SpinMutex<Option<usize>> = SpinMutex::new(None);
 
 lazy_static! {
-    pub static ref FREE_PAGE_LIST: Mutex<HeapLinkedList<Page>> = Mutex::new(HeapLinkedList::new());
+    pub static ref FREE_PAGE_LIST: SpinMutex<HeapLinkedList<Page>> =
+        SpinMutex::new(HeapLinkedList::new());
 }
 
 /// Perform the allocation of pages. Gives priority to pages in the free list. If there
@@ -171,6 +175,7 @@ pub fn setup_kernel_page_tables() -> Result<Page, &'static str> {
     }
 
     for entry in KERNEL_MEMORY_LAYOUT.lock().iter() {
+        // println!("[KERNEL] Page End at 0x{:X}", entry.phys_end);
         map_pages(
             page_dir,
             entry.virt as usize,
@@ -179,12 +184,6 @@ pub fn setup_kernel_page_tables() -> Result<Page, &'static str> {
             entry.perm,
         );
     }
-
-    let mut kernel_page_dir = KERNEL_PAGE_DIR.lock();
-    *kernel_page_dir = Some(page_dir.address as usize);
-
-    // Switch to new page directory
-    load_cr3(V2P!(kernel_page_dir.unwrap()));
 
     return Ok(page_dir);
 }
@@ -195,8 +194,55 @@ pub fn setup_kernel_page_tables() -> Result<Page, &'static str> {
 /// ensuring access to the entirety of the physical space.
 pub fn setup_vm() {
     println!("[KERNEL] Mapping Memory");
-    setup_kernel_page_tables().expect("[ERR] Failed to Setup Virtual Memory");
+
+    let page_dir = setup_kernel_page_tables().expect("[ERR] Failed to Setup Virtual Memory");
+
+    // Switch to new page directory
+    let mut kernel_page_dir = KERNEL_PAGE_DIR.lock();
+    *kernel_page_dir = Some(page_dir.address as usize);
+    load_cr3(V2P!(kernel_page_dir.unwrap()));
+
     println!("[KERNEL] Virtual Memory Initialized");
+}
+
+#[no_mangle]
+pub fn vm_corruption_checker() {
+    cli();
+    let cr3 = P2V!(read_cr3()) as *const u32;
+    println!("Memory Check on Page Directory 0x{:X}", cr3 as u32);
+
+    for pg_dir_index in 511..1024 {
+        let page_dir_entry = unsafe { *cr3.add(pg_dir_index) };
+        let page_table_address = page_dir_entry & 0xFFFFF000;
+        let page_present = page_dir_entry & 0b1;
+        let mut last_entry = 0;
+
+        if page_present != 1 {
+            continue;
+        }
+
+        for pg_table_index in 0..1024 {
+            let entry_address = P2V!(page_table_address as usize) as *const u32;
+            let entry_data = unsafe { *entry_address.add(pg_table_index) };
+            let page_address = entry_data & 0xFFFFF000;
+
+            if last_entry != 0 && page_address.overflowing_sub(last_entry).0 != 0x1000 {
+                println!("[ERROR] Virtual Memory Corruption Detected");
+                println!(
+                    "[ERROR] First Corruption at 0x{:X}, Page Table Index {}, Page Directory Index {}",
+                    page_table_address, pg_table_index, pg_dir_index
+                );
+                println!("[ERROR] 0x{:X} -> 0x{:X}", last_entry, page_address);
+                hlt();
+            }
+
+            last_entry = page_address;
+        }
+    }
+
+    println!("[KERNEL] Memory Check Completed. No Corruption Found");
+
+    hlt();
 }
 
 unsafe impl Send for MemoryLayoutEntry {}

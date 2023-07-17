@@ -2,13 +2,13 @@ use crate::{
     apic::local_apic::local_apic_acknowledge,
     println,
     scheduler::{defs::process::TrapFrame, scheduler::SCHEDULER},
-    x86::helpers::read_cr2,
+    x86::helpers::{hlt, read_cr2},
 };
 
 use super::{
     defs::{InterruptStackFrame, PageFaultErr},
     irqs::handle_irq,
-    system_call::handle_system_call,
+    system_calls::handle_system_call,
 };
 
 pub extern "x86-interrupt" fn div_by_zero_handler(frame: InterruptStackFrame) {
@@ -37,6 +37,10 @@ pub extern "x86-interrupt" fn overflow(frame: InterruptStackFrame) {
 
 pub extern "x86-interrupt" fn bound_range(frame: InterruptStackFrame) {
     println!("EXCEPTION: BOUND RANGE EXCEEDED\n{:#?}", frame);
+}
+
+pub extern "x86-interrupt" fn invalid_tss(frame: InterruptStackFrame, _err: u32) {
+    println!("EXCEPTION: INVALID TSS {:#X?}, Error Code: {:X}\n", frame, _err);
 }
 
 pub extern "x86-interrupt" fn double_fault_handler(frame: InterruptStackFrame, _err: u32) {
