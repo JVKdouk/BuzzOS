@@ -23,8 +23,8 @@ lazy_static! {
     };
 }
 
-pub fn memset(address: usize, value: u8, length: usize) {
-    stosb(address, value, length);
+pub fn memset(address: *mut u8, value: u8, length: usize) {
+    stosb(address as usize, value, length);
 }
 
 pub unsafe fn memmove(src: usize, dst: usize, mut length: usize) -> *mut usize {
@@ -68,7 +68,7 @@ impl MemoryRegion {
 
     /// Gets the next page available and increase the counter. Once no more pages are available,
     /// raises an exception.
-    pub fn next(&mut self, number_pages: usize) -> Result<Page, &'static str> {
+    pub fn next(&mut self, number_pages: usize) -> Result<*mut u8, &'static str> {
         if self.index as usize + 4096 * number_pages > self.end {
             return Err("[ERR] Failure to Allocate Page");
         }
@@ -77,9 +77,7 @@ impl MemoryRegion {
         let address = self.start + address_index_offset;
         self.index += number_pages;
 
-        Ok(Page {
-            address: address as *const usize,
-        })
+        Ok(address as *mut u8)
     }
 }
 

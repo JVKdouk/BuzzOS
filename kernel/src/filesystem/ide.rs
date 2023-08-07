@@ -56,6 +56,13 @@ impl DiskBlock {
     pub fn get_address(&self) -> usize {
         self as *const DiskBlock as usize
     }
+
+    pub fn cast_to<T>(&mut self) -> &mut [T] {
+        let ptr = self.data.as_mut_ptr();
+        let size = core::mem::size_of::<T>();
+        let entries = BLOCK_SIZE / size;
+        unsafe { core::slice::from_raw_parts_mut(ptr as *mut T, entries) }
+    }
 }
 
 /// Many IDE operations take time to complete. If the Status Register reports a status of BUSY, the

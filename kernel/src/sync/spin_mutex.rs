@@ -60,7 +60,9 @@ impl<T: ?Sized> SpinMutex<T> {
         let lock_cpu = unsafe { &mut *self.cpu.get() };
         let current_cpu = get_current_cpu_id();
 
+        // If CPU already has the lock, pop the CLI stack
         if self.lock.load(Ordering::Relaxed) == true && *lock_cpu == current_cpu {
+            pop_cli();
             return;
         }
 

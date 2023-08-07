@@ -4,6 +4,8 @@
 #![feature(const_mut_refs)]
 #![feature(alloc_error_handler)]
 #![feature(pointer_byte_offsets)]
+#![feature(ptr_metadata)]
+#![feature(slice_index_methods)]
 #[macro_use]
 
 pub mod devices;
@@ -24,7 +26,7 @@ extern crate alloc;
 // Interface definition of panic in Rust. Core represents the core library
 use core::panic::PanicInfo;
 
-use crate::{sync::cpu_cli::push_cli, x86::helpers::cli};
+use crate::sync::cpu_cli::push_cli;
 
 // Uses C calling convention instead of Rust. no_mangle removes name mangling when compiled.
 // _start is the default entry point for most systems. Function is diverging as the Kernel should

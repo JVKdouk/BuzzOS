@@ -1,4 +1,4 @@
-use core::panic;
+use core::{panic, slice::from_raw_parts_mut};
 
 use alloc::{string::String, sync::Arc, vec::Vec};
 
@@ -9,14 +9,16 @@ use super::{
 
 use crate::{
     apic::mp::get_my_cpu,
+    filesystem::fs::{read_inode_data, INode, SECONDARY_BLOCK_ID},
     memory::{
         defs::{
             Page, KERNEL_BASE, KERNEL_DATA_SEGMENT, PAGE_SIZE, PTE_U, PTE_W, TASK_STATE_SEGMENT,
             USER_CODE_SEGMENT, USER_DATA_SEGMENT,
         },
         mem::{memmove, memset},
-        vm::{allocate_page, map_pages, setup_kernel_page_tables},
+        vm::{allocate_page, map_pages, setup_kernel_page_tables, walk_page_dir},
     },
+    println,
     sync::{
         cpu_cli::{pop_cli, push_cli},
         spin_mutex::{SpinMutex, SpinMutexGuard},
@@ -25,7 +27,7 @@ use crate::{
         defs::PrivilegeLevel,
         helpers::{load_cr3, ltr},
     },
-    V2P,
+    P2V, ROUND_DOWN, ROUND_UP, V2P,
 };
 
 impl ProcessList {
@@ -117,7 +119,7 @@ pub unsafe fn spawn_process() -> Result<usize, &'static str> {
     let mut process = Process::new(0);
     let trapframe_size = core::mem::size_of::<TrapFrame>() as isize;
     let context_size = core::mem::size_of::<Context>() as isize;
-    let kernel_page = allocate_page().address as *mut usize;
+    let kernel_page = allocate_page().as_ptr() as *mut usize;
     let mut esp = kernel_page.offset(PAGE_SIZE as isize / 4);
 
     process.kernel_stack = Some(kernel_page);
@@ -126,12 +128,12 @@ pub unsafe fn spawn_process() -> Result<usize, &'static str> {
 
     // Setup Trapframe Layout
     esp = esp.offset(-trapframe_size / 4);
-    memset(esp as usize, 0, trapframe_size as usize);
+    memset(esp as *mut u8, 0, trapframe_size as usize);
     process.trapframe = Some(esp as *mut TrapFrame);
 
     // Setup Context Layout
     esp = esp.offset(-context_size / 4);
-    memset(esp as usize, 0, context_size as usize);
+    memset(esp as *mut u8, 0, context_size as usize);
     process.context = Some(esp as *mut Context);
 
     // Create Trap Return
@@ -176,21 +178,22 @@ pub unsafe fn switch_user_virtual_memory(process: &Arc<SpinMutex<Process>>) {
 }
 
 /// Migrate from Kernel Virtual Memory to User Virtual Memory. Notice that
-pub unsafe fn setup_user_virtual_memory(page_dir: Page, address: *const usize, size: usize) {
+pub unsafe fn setup_user_virtual_memory(page_dir: &mut Page, address: *const usize, size: usize) {
     if size >= PAGE_SIZE {
         panic!("[FATAL] User Virtual Memory is bigger than one page");
     }
 
-    let memory_page = allocate_page();
+    let mut memory_page = allocate_page();
+    memory_page.zero();
+
     let virtual_address = 0;
     let page_size = PAGE_SIZE;
-    let phys_address = V2P!(memory_page.address as usize);
+    let phys_address = V2P!(memory_page.as_ptr() as usize);
     let flags = PTE_W | PTE_U;
 
     // Prepare all pages required by the process and copy over the executable binary and data
-    memset(memory_page.address as usize, 0, PAGE_SIZE);
     map_pages(page_dir, virtual_address, page_size, phys_address, flags);
-    memmove(address as usize, memory_page.address as usize, size);
+    memmove(address as usize, memory_page.as_ptr() as usize, size);
 }
 
 /// Spawns the first process to run in the user space, the init process. Subsequent children inherit
@@ -200,15 +203,16 @@ pub unsafe fn spawn_init_process() {
     let mut process = PROCESS_LIST.lock().get_pid(process_pid).unwrap();
     let mut process_lock = process.lock();
 
-    let kernel_pgdir = setup_kernel_page_tables().expect("[FATAL] Failed to setup Kernel pages");
+    let mut kernel_pgdir =
+        setup_kernel_page_tables().expect("[FATAL] Failed to setup Kernel pages");
 
     let user_code_selector = (USER_CODE_SEGMENT << 3) as u16 | PrivilegeLevel::Ring3 as u16;
     let user_data_selector = (USER_DATA_SEGMENT << 3) as u16 | PrivilegeLevel::Ring3 as u16;
 
-    process_lock.pgdir = Some(kernel_pgdir.address as *mut usize);
+    process_lock.pgdir = Some(kernel_pgdir.as_ptr() as *mut usize);
 
     setup_user_virtual_memory(
-        kernel_pgdir,
+        &mut kernel_pgdir,
         &_binary_init_start as *const usize,
         &_binary_init_size as *const usize as usize,
     );
@@ -225,4 +229,99 @@ pub unsafe fn spawn_init_process() {
     // Setup Misc
     process_lock.name = String::from("init");
     process_lock.state = ProcessState::READY;
+}
+
+/// Perform virtual memory mapping on a given range. Useful to map multiple pages at once.
+pub fn allocate_range(page_dir: &mut Page, mut start_address: usize, end_address: usize) {
+    start_address = ROUND_DOWN!(start_address, PAGE_SIZE);
+
+    while start_address < end_address {
+        let mut page = allocate_page();
+        page.zero();
+
+        // Map page into a process's virtual memory
+        map_pages(
+            page_dir,
+            start_address,
+            PAGE_SIZE,
+            V2P!(page.as_ptr() as usize),
+            PTE_W | PTE_U,
+        );
+
+        start_address += PAGE_SIZE;
+    }
+}
+
+pub fn load_process_memory(
+    page_dir: &mut Page,
+    address: *const u8,
+    inode: &INode,
+    offset: usize,
+    size: usize,
+) -> Result<(), ()> {
+    if offset > PAGE_SIZE {
+        panic!("[ERROR] ELF Offset bigger than a full page");
+    }
+
+    let mut counter = 0;
+    let mut first_page_offset = offset;
+    while counter < size {
+        // Get page that will be modified
+        let page_table_entry = walk_page_dir(page_dir, address as usize + counter, false);
+        let page_address = unsafe { P2V!(*page_table_entry & !0xFFF) };
+
+        // Align to minimum between what data is left and a full page
+        let mut byte_count = PAGE_SIZE;
+        if size - counter < PAGE_SIZE {
+            byte_count = size - counter;
+        }
+
+        // Read program's data
+        let inode_data = read_inode_data(inode, (offset + counter) as u32, byte_count as u32);
+
+        // Write data into the page
+        let page_data = unsafe { from_raw_parts_mut(page_address as *mut u8, PAGE_SIZE) };
+        page_data[first_page_offset..(first_page_offset + byte_count)]
+            .copy_from_slice(inode_data.as_slice());
+
+        counter += PAGE_SIZE;
+        first_page_offset = 0;
+    }
+
+    Ok(())
+}
+
+pub unsafe fn resize_process_memory(
+    page_dir: &mut Page,
+    mut old_size: usize,
+    new_size: usize,
+) -> Result<usize, ()> {
+    // TODO: Add support to shrinking
+    if new_size < old_size {
+        return Ok(old_size);
+    }
+
+    if new_size > KERNEL_BASE {
+        return Err(());
+    }
+
+    let mut lower_boundary = ROUND_UP!(old_size, PAGE_SIZE);
+    while lower_boundary < new_size {
+        // Allocate new pages to the current process
+        let mut page = allocate_page();
+        page.zero();
+
+        // Map page into a process's virtual memory
+        map_pages(
+            page_dir,
+            lower_boundary,
+            PAGE_SIZE,
+            V2P!(page.as_ptr() as usize),
+            PTE_W | PTE_U,
+        );
+
+        lower_boundary += PAGE_SIZE;
+    }
+
+    Ok(new_size)
 }

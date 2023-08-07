@@ -74,7 +74,7 @@ pub fn read_disk_block(device: u32, block_number: u32) -> CacheBlock {
     request_ide(Arc::clone(&block));
     sleep(address);
 
-    return block;
+    block
 }
 
 pub fn get_cache_block(device: u32, block_number: u32) -> Option<CacheBlock> {
@@ -89,40 +89,4 @@ pub fn get_cache_block(device: u32, block_number: u32) -> Option<CacheBlock> {
 pub fn remove_cache_block(block: CacheBlock) {
     let mut cache = block.lock();
     let mut list = CACHE_BLOCK_LIST.lock();
-}
-
-pub fn test_cache() {
-    let mut cache = read_disk_block(1, 0);
-    println!("{:X?}", cache.lock().data);
-    cache.lock().data[0] = 12;
-    println!("{:X?}", cache.lock().data);
-    write_disk_block(cache);
-
-    // println!("{:X?}", cache);
-    // while cache.as_ref().unwrap().lock().status != DiskRequestStatus::READY {
-    //     cache = get_cache_block(1, 0);
-    // }
-
-    // println!("Current Block is {:p}", cache.as_ref().unwrap()); // 0x8021f5c8
-
-    // let mut cache_block = cache.unwrap();
-    // let mut cache_lock = cache_block.lock();
-    // cache_lock.data[1] = 0x80;
-
-    // write_disk_block(1, 0);
-
-    // cache_lock.data = [0; BLOCK_SIZE];
-    // cache_lock.dirty = false;
-
-    // CACHE_BLOCK_LIST.lock().pop();
-
-    // read_disk_block(1, 0);
-
-    // let mut cache = get_cache_block(1, 0);
-    // while cache.as_ref().unwrap().lock().status != DiskRequestStatus::READY {
-    //     cache = get_cache_block(1, 0);
-    // }
-
-    // // println!("Current Block is {:p}", cache.as_ref().unwrap()); // 0x8021f5c8
-    // println!("{:X?}", cache);
 }

@@ -9,6 +9,7 @@ pub mod system_call {
     pub const YIELD: usize = 2;
     pub const SLEEP: usize = 3;
     pub const SETUP_FS: usize = 4;
+    pub const EXEC: usize = 5;
 }
 
 /// Structure of a pointer to a IDT. Must be passed in this format

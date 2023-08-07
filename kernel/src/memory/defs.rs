@@ -1,3 +1,5 @@
+use core::mem::size_of;
+
 use bitflags::bitflags;
 
 use crate::structures::static_linked_list::StaticLinkedListNode;
@@ -50,6 +52,13 @@ macro_rules! PAGE_DIR_INDEX {
     };
 }
 
+#[macro_export]
+macro_rules! PTE_ADDRESS {
+    ($n:expr) => {
+        $n & !0xFFF
+    };
+}
+
 /// GDT Definitions
 pub const NUMBER_DESCRIPTORS: usize = 7;
 
@@ -64,6 +73,8 @@ pub const MEM_BDA: usize = 0x400; // Memory BIOS Data Area
 
 /// VM Definitions
 pub const PAGE_SIZE: usize = 4096;
+pub const PAGE_ENTRY_SIZE: usize = size_of::<u32>();
+pub const NUMBER_PAGE_ENTRIES: usize = PAGE_SIZE / PAGE_ENTRY_SIZE;
 
 pub const EXTENDED_MEMORY: usize = 0x100000;
 pub const DEVICE_SPACE: usize = 0xFE000000;
@@ -102,10 +113,8 @@ pub struct MemoryLayoutEntry {
     pub perm: usize,        // Permission flags
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct Page {
-    pub address: *const usize, // TODO: Revamp how pages work
-}
+#[derive(Debug)]
+pub struct Page<'a>(pub &'a mut [u8; PAGE_SIZE]);
 
 #[derive(Debug)]
 pub struct MemoryRegion {

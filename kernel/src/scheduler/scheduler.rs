@@ -2,13 +2,16 @@ use alloc::sync::Arc;
 
 use crate::{
     apic::mp::get_my_cpu,
-    debug::{debug_cpu, debug_process_list, interrupts::decode_eflags},
+    debug::{
+        debug_cpu, debug_process_list,
+        interrupts::{debug_cpu_interrupts, decode_eflags, read_cpu_number_cli},
+    },
     memory::defs::KERNEL_BASE,
     memory::vm::KERNEL_PAGE_DIR,
     println,
     scheduler::{process::switch_user_virtual_memory, sleep::wakeup},
     sync::spin_mutex::SpinMutex,
-    x86::helpers::{hlt, load_cr3, sti},
+    x86::helpers::{hlt, load_cr3, read_eflags, sti},
     V2P,
 };
 
@@ -82,6 +85,7 @@ impl Scheduler {
         let cpu = get_my_cpu().unwrap();
         let mut enable_interrupts = unsafe { &mut *cpu.enable_interrupt.get() };
         let interrupt_status = *enable_interrupts;
+
         switch(process_context, self.context);
         *enable_interrupts = interrupt_status;
     }
@@ -90,6 +94,8 @@ impl Scheduler {
         SCHEDULER.force_unlock();
 
         loop {
+            sti();
+
             let mut process_list = PROCESS_LIST.lock();
 
             // No need to unlock here, lock is dropped automatically
@@ -119,7 +125,17 @@ impl Scheduler {
             self.current_process = None;
             self.status = SchedulerState::READY;
 
-            sti();
+            // Check for leftover CLI stack. If there is a leftover CLI stack, look for
+            // a mutex lock that has been locked but never unlocked. At this point in execution
+            // there should be no leftover CLI stack.
+            let cpu = get_my_cpu().unwrap();
+            let number_cli = *cpu.number_cli.get();
+            if number_cli > 0 {
+                panic!(
+                    "[ERROR] Leftover CLI stack has been found for CPU {}",
+                    cpu.apic_id
+                );
+            }
         }
     }
 }

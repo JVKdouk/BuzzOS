@@ -1,7 +1,7 @@
 use alloc::alloc::{GlobalAlloc, Layout};
 
 use crate::{
-    memory::mem::MEMORY_REGION,
+    memory::{mem::MEMORY_REGION, vm::allocate_pages},
     println,
     structures::static_linked_list::StaticLinkedListNode,
     sync::spin_mutex::{SpinMutex, SpinMutexGuard},
@@ -178,11 +178,7 @@ impl LinkedListAllocator {
 pub fn setup_heap() {
     println!("[KERNEL] Setting Up Heap");
 
-    let page_address = MEMORY_REGION
-        .lock()
-        .next(HEAP_PAGES)
-        .expect("[FATAL] Out of Memory")
-        .address as usize;
+    let page_address = allocate_pages(HEAP_PAGES).as_ptr() as usize;
 
     unsafe {
         HEAP_ALLOCATOR

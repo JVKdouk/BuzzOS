@@ -19,10 +19,7 @@ build/bootloader.a
 # Ensure everything is in place and clear build folder
 [tasks.clean]
 clear = true
-script = [
-    "mkdir -p build",
-    "rm -rf ./build/*",
-]
+script = ["mkdir -p build", "rm -rf ./build/*"]
 
 # Build Bootloader
 [tasks.build_bootloader]
@@ -30,10 +27,10 @@ dependencies = ["clean"]
 workspace = false
 script = [
     "cd bootloader",
-    
+
     # Compile Bootloader binaries
     "nasm -f elf32 src/boot.asm -o ../build/boot.elf",
-    
+
     # Set ELF at origin address
     "ld -e _start_16 -Ttext=0x7C00 -b elf32-i386 -m elf_i386 --oformat binary -o ../build/boot.bin ../build/boot.elf",
     "ld -e _start_16 -Ttext=0x7C00 -b elf32-i386 -m elf_i386 --oformat elf32-i386 -o ../build/bootloader.elf ../build/boot.elf",
@@ -48,19 +45,21 @@ workspace = false
 script = [
     "cd user",
     "cargo build",
+    "mkdir ../build/user",
+    "rm target/bin/*.rlib",
+    "cp target/bin/* ../build/user",
 
-    "cd ../build",
-    "mkdir user",
-    # "cp ../users/x86-target/debug",
+    "objdump -S target/bin/init > ../build/init.asm",
 ]
 
 # Build File System
 [tasks.build_fs]
-dependencies = ["clean"]
+dependencies = ["clean", "build_user"]
 workspace = false
 script = [
-    "echo TESTING | dd of=build/fs.img bs=4096",
-    "echo ABCBASUCJASCNJASUKC | dd of=build/fs.img bs=4096 seek=1",
+    "cd tools",
+    "cargo build",
+    "../target/debug/mkfs ../build/fs.img ../build/user",
     # "dd if=/dev/zero of=build/fs.img count=10000 seek=2",
 ]
 
@@ -80,11 +79,11 @@ script = [
 
     "RUSTFLAGS=-g cargo build --target x86-target.json",
     "cd ..; cp target/x86-target/debug/libbuzz_os_kernel.a build/kernel.o",
-    
+
     # Link Kernel binaries
     "cd build",
     "ld -n -T ../kernel/src/boot/linker.ld -o kernel.elf ${KERNEL_FILES} -b binary init",
-    "rm kernel.o entry.o"
+    "rm kernel.o entry.o",
 ]
 
 # Build bootloader asm files
@@ -97,14 +96,14 @@ script = [
     "dd if=build/boot.bin of=build/buzz.img conv=notrunc status=none",
     "dd if=build/kernel.elf of=build/buzz.img seek=1 conv=notrunc status=none",
     "rm build/boot.bin",
-    
+
     # Start OS
     "qemu-system-i386 -nographic -drive file=build/fs.img,index=1,media=disk -drive file=build/buzz.img,index=0,media=disk,format=raw -smp 1 -M pc-i440fx-6.1 -no-shutdown -no-reboot -m 512",
 ]
 
 # Build bootloader asm files
 [tasks.gdb]
-dependencies = ["build_kernel", "build_bootloader", "build_fs"]
+dependencies = ["build_fs", "build_kernel", "build_bootloader"]
 workspace = false
 script = [
     # Generate disk image
@@ -112,16 +111,14 @@ script = [
     "dd if=build/boot.bin of=build/buzz.img conv=notrunc status=none",
     "dd if=build/kernel.elf of=build/buzz.img seek=1 conv=notrunc status=none",
     "rm build/boot.bin",
-    
+
     # Start OS
-    "qemu-system-i386 -s -S -drive file=fs.img,index=1,media=disk,format=raw -drive file=build/buzz.img,index=0,media=disk,format=raw -smp 2 -no-reboot -no-shutdown -nographic -serial mon:stdio -m 512 -d int",
+    "qemu-system-i386 -s -S -drive file=build/fs.img,index=1,media=disk -drive file=build/buzz.img,index=0,media=disk,format=raw -smp 2 -no-reboot -no-shutdown -nographic -serial mon:stdio -m 512",
 ]
 
 [tasks.dry-run]
 workspace = false
-script = [
-    "cargo doc"
-]
+script = ["cargo doc"]
 
 [tasks.default]
 alias = "build_run"
