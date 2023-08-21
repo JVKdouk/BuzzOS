@@ -10,6 +10,8 @@ pub mod system_call {
     pub const SLEEP: usize = 3;
     pub const SETUP_FS: usize = 4;
     pub const EXEC: usize = 5;
+    pub const FORK: usize = 6;
+    pub const WAIT: usize = 7;
 }
 
 /// Structure of a pointer to a IDT. Must be passed in this format

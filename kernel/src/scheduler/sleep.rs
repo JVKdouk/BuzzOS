@@ -2,12 +2,6 @@ use crate::{scheduler::defs::process::ProcessState, x86::helpers::cli};
 
 use super::scheduler::{PROCESS_LIST, SCHEDULER};
 
-struct SleepLock {
-    pid: usize,
-    locked: bool,
-    object: usize,
-}
-
 /// The idea of sleep is to remove the process from the ready/running process queue until
 /// the object it is waiting for is ready. Sleep is accompanied by the wakeup method, which
 /// together are capable of putting processes to sleep and then adding them back to the queue
@@ -39,7 +33,7 @@ pub fn sleep(object: usize) {
 /// list and wakes up all processes that rely on the provided object.
 pub fn wakeup(object: usize) {
     let mut process_list = unsafe { PROCESS_LIST.lock() };
-    process_list.0.iter_mut().for_each(|process_lock| {
+    process_list.list.iter_mut().for_each(|process_lock| {
         let mut process = process_lock.lock();
         if process.sleep_object == object && process.state == ProcessState::SLEEPING {
             process.state = ProcessState::READY;

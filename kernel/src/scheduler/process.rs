@@ -4,21 +4,23 @@ use alloc::{string::String, sync::Arc, vec::Vec};
 
 use super::{
     defs::process::{Context, Process, ProcessList, ProcessState, TrapFrame},
-    scheduler::PROCESS_LIST,
+    scheduler::{PROCESS_LIST, SCHEDULER},
+    sleep::sleep,
 };
 
 use crate::{
     apic::mp::get_my_cpu,
-    filesystem::fs::{read_inode_data, INode, SECONDARY_BLOCK_ID},
+    debug::vm::compare_virtual_memory,
+    filesystem::fs::{read_inode_data, INode},
     memory::{
         defs::{
-            Page, KERNEL_BASE, KERNEL_DATA_SEGMENT, PAGE_SIZE, PTE_U, PTE_W, TASK_STATE_SEGMENT,
-            USER_CODE_SEGMENT, USER_DATA_SEGMENT,
+            Page, KERNEL_BASE, KERNEL_DATA_SEGMENT, PAGE_SIZE, PTE_P, PTE_U, PTE_W,
+            TASK_STATE_SEGMENT, USER_CODE_SEGMENT, USER_DATA_SEGMENT,
         },
-        mem::{memmove, memset},
+        error::MemoryError,
+        mem::{mem_move, mem_set},
         vm::{allocate_page, map_pages, setup_kernel_page_tables, walk_page_dir},
     },
-    println,
     sync::{
         cpu_cli::{pop_cli, push_cli},
         spin_mutex::{SpinMutex, SpinMutexGuard},
@@ -27,20 +29,24 @@ use crate::{
         defs::PrivilegeLevel,
         helpers::{load_cr3, ltr},
     },
-    P2V, ROUND_DOWN, ROUND_UP, V2P,
+    P2V, PTE_ADDRESS, PTE_FLAGS, ROUND_DOWN, ROUND_UP, V2P,
 };
 
 impl ProcessList {
     pub const fn new() -> Self {
-        ProcessList(Vec::new())
+        ProcessList {
+            list: Vec::new(),
+            next_to_visit: 0,
+            next_pid: 0,
+        }
     }
 
     pub fn get_pid(&self, pid: usize) -> Option<Arc<SpinMutex<Process>>> {
-        if pid > self.0.len() {
+        if pid > self.list.len() {
             panic!("[FATAL] PID out of bounds");
         }
 
-        match self.0.iter().find(|process| process.lock().pid == pid) {
+        match self.list.iter().find(|process| process.lock().pid == pid) {
             Some(process) => Some(Arc::clone(process)),
             None => None,
         }
@@ -50,27 +56,43 @@ impl ProcessList {
     /// to allocate the process.
     pub fn insert_process(&mut self, mut process: Process) -> Option<usize> {
         match self
-            .0
+            .list
             .iter()
             .position(|p| p.lock().state == ProcessState::EMPTY)
         {
             Some(pid) => {
                 process.pid = pid;
-                self.0[pid] = Arc::new(SpinMutex::new(process));
+                self.list[pid] = Arc::new(SpinMutex::new(process));
                 Some(pid)
             }
             None => {
-                process.pid = self.0.len();
-                self.0.push(Arc::new(SpinMutex::new(process)));
-                Some(self.0.len() - 1)
+                process.pid = self.list.len();
+                self.list.push(Arc::new(SpinMutex::new(process)));
+                Some(self.list.len() - 1)
             }
         }
     }
 
-    pub fn get_next_ready(&self) -> Option<&Arc<SpinMutex<Process>>> {
-        self.0
-            .iter()
-            .find(|p| p.lock().state == ProcessState::READY)
+    pub fn get_next_ready(&mut self) -> Option<&Arc<SpinMutex<Process>>> {
+        if self.next_to_visit >= self.list.len() {
+            self.next_to_visit = 0;
+        }
+
+        let mut index = self.next_to_visit;
+        for process in self.list.iter().skip(self.next_to_visit) {
+            if process.lock().state == ProcessState::READY {
+                break;
+            }
+
+            index += 1;
+        }
+
+        self.next_to_visit = index + 1;
+        if index >= self.list.len() {
+            return None;
+        }
+
+        Some(&self.list[index])
     }
 }
 
@@ -86,6 +108,7 @@ impl Process {
             kernel_stack: None,
             pgdir: None,
             sleep_object: 0,
+            parent: None,
             pid,
         }
     }
@@ -116,31 +139,35 @@ extern "C" {
 /// by the Scheduler. At this point, it is generally prepared to run in the user-space, but no
 /// specific are provided.
 pub unsafe fn spawn_process() -> Result<usize, &'static str> {
-    let mut process = Process::new(0);
+    let mut process_list = PROCESS_LIST.lock();
+    let mut process = Process::new(process_list.next_pid);
+    process_list.next_pid += 1;
+
     let trapframe_size = core::mem::size_of::<TrapFrame>() as isize;
     let context_size = core::mem::size_of::<Context>() as isize;
-    let kernel_page = allocate_page().as_ptr() as *mut usize;
-    let mut esp = kernel_page.offset(PAGE_SIZE as isize / 4);
+    let mut kernel_page = allocate_page().expect("[ERROR] Failed to allocate page");
+    let mut kernel_page_pointer = kernel_page.as_mut_ptr() as *mut usize;
+    let mut esp = kernel_page_pointer.offset(PAGE_SIZE as isize / 4);
 
-    process.kernel_stack = Some(kernel_page);
+    process.kernel_stack = Some(kernel_page_pointer);
     process.mem_size = PAGE_SIZE;
     process.state = ProcessState::EMBRYO;
 
     // Setup Trapframe Layout
     esp = esp.offset(-trapframe_size / 4);
-    memset(esp as *mut u8, 0, trapframe_size as usize);
+    mem_set(esp as *mut u8, 0, trapframe_size as usize);
     process.trapframe = Some(esp as *mut TrapFrame);
 
     // Setup Context Layout
     esp = esp.offset(-context_size / 4);
-    memset(esp as *mut u8, 0, context_size as usize);
+    mem_set(esp as *mut u8, 0, context_size as usize);
     process.context = Some(esp as *mut Context);
 
     // Create Trap Return
     (*process.context.unwrap()).eip = trap_return as *const () as usize;
 
     // Return the pid for the newly created process slot
-    match PROCESS_LIST.lock().insert_process(process) {
+    match process_list.insert_process(process) {
         Some(pid) => Ok(pid),
         None => Err("Could not allocate"),
     }
@@ -183,17 +210,17 @@ pub unsafe fn setup_user_virtual_memory(page_dir: &mut Page, address: *const usi
         panic!("[FATAL] User Virtual Memory is bigger than one page");
     }
 
-    let mut memory_page = allocate_page();
-    memory_page.zero();
-
+    let mut memory_page = allocate_page().expect("[ERROR] Failed to allocate page");
     let virtual_address = 0;
     let page_size = PAGE_SIZE;
     let phys_address = V2P!(memory_page.as_ptr() as usize);
     let flags = PTE_W | PTE_U;
 
     // Prepare all pages required by the process and copy over the executable binary and data
-    map_pages(page_dir, virtual_address, page_size, phys_address, flags);
-    memmove(address as usize, memory_page.as_ptr() as usize, size);
+    memory_page.zero();
+    mem_move(address as *mut u8, memory_page.as_mut_ptr(), size);
+    map_pages(page_dir, virtual_address, page_size, phys_address, flags)
+        .expect("[ERROR] Failed to Map Kernel Pages");
 }
 
 /// Spawns the first process to run in the user space, the init process. Subsequent children inherit
@@ -209,7 +236,7 @@ pub unsafe fn spawn_init_process() {
     let user_code_selector = (USER_CODE_SEGMENT << 3) as u16 | PrivilegeLevel::Ring3 as u16;
     let user_data_selector = (USER_DATA_SEGMENT << 3) as u16 | PrivilegeLevel::Ring3 as u16;
 
-    process_lock.pgdir = Some(kernel_pgdir.as_ptr() as *mut usize);
+    process_lock.pgdir = Some(kernel_pgdir.as_mut_ptr() as *mut usize);
 
     setup_user_virtual_memory(
         &mut kernel_pgdir,
@@ -227,16 +254,17 @@ pub unsafe fn spawn_init_process() {
     (*process_lock.trapframe.unwrap()).eflags = 0x200;
 
     // Setup Misc
-    process_lock.name = String::from("init");
+    process_lock.name = String::from("kernel_init");
     process_lock.state = ProcessState::READY;
 }
 
+/// TODO: Use Map Pages instead of allocate range
 /// Perform virtual memory mapping on a given range. Useful to map multiple pages at once.
 pub fn allocate_range(page_dir: &mut Page, mut start_address: usize, end_address: usize) {
     start_address = ROUND_DOWN!(start_address, PAGE_SIZE);
 
     while start_address < end_address {
-        let mut page = allocate_page();
+        let mut page = allocate_page().expect("[ERROR] Failed to allocate page");
         page.zero();
 
         // Map page into a process's virtual memory
@@ -267,7 +295,7 @@ pub fn load_process_memory(
     let mut first_page_offset = offset;
     while counter < size {
         // Get page that will be modified
-        let page_table_entry = walk_page_dir(page_dir, address as usize + counter, false);
+        let page_table_entry = walk_page_dir(page_dir, address as usize + counter, false).unwrap();
         let page_address = unsafe { P2V!(*page_table_entry & !0xFFF) };
 
         // Align to minimum between what data is left and a full page
@@ -295,20 +323,20 @@ pub unsafe fn resize_process_memory(
     page_dir: &mut Page,
     mut old_size: usize,
     new_size: usize,
-) -> Result<usize, ()> {
+) -> Result<usize, MemoryError> {
     // TODO: Add support to shrinking
     if new_size < old_size {
         return Ok(old_size);
     }
 
     if new_size > KERNEL_BASE {
-        return Err(());
+        return Err(MemoryError::MemorySpaceViolation);
     }
 
     let mut lower_boundary = ROUND_UP!(old_size, PAGE_SIZE);
     while lower_boundary < new_size {
         // Allocate new pages to the current process
-        let mut page = allocate_page();
+        let mut page = allocate_page()?;
         page.zero();
 
         // Map page into a process's virtual memory
@@ -318,10 +346,123 @@ pub unsafe fn resize_process_memory(
             PAGE_SIZE,
             V2P!(page.as_ptr() as usize),
             PTE_W | PTE_U,
-        );
+        )?;
 
         lower_boundary += PAGE_SIZE;
     }
 
     Ok(new_size)
+}
+
+pub fn fork() {
+    let new_process_pid = unsafe { spawn_process().unwrap() };
+    let mut new_process = unsafe { PROCESS_LIST.lock().get_pid(new_process_pid).unwrap() };
+    let mut kernel_pgdir = setup_kernel_page_tables().unwrap();
+    new_process.lock().pgdir = Some(kernel_pgdir.as_mut_ptr() as *mut usize);
+
+    let mut scheduler = unsafe { SCHEDULER.lock() };
+    let process = scheduler.current_process.as_ref().unwrap();
+    let mut src_page_dir = Page::new(process.lock().pgdir.unwrap() as *mut u8);
+
+    unsafe { copy_process_virtual_memory(&mut src_page_dir, &mut kernel_pgdir) };
+    unsafe { compare_virtual_memory(&mut src_page_dir, &mut kernel_pgdir) };
+
+    new_process.lock().mem_size = process.lock().mem_size;
+    new_process.lock().parent = Some(Arc::clone(&process));
+    new_process.lock().name = process.lock().name.clone();
+    new_process.lock().state = ProcessState::READY;
+
+    // Copy trapframe
+    let parent_trapframe = unsafe { *process.lock().trapframe.unwrap() };
+    unsafe { *new_process.lock().trapframe.unwrap() = parent_trapframe };
+    unsafe { (*new_process.lock().trapframe.unwrap()).eax = 0 }; // Return 0 on child process
+
+    unsafe { scheduler.resume() };
+}
+
+pub unsafe fn copy_process_virtual_memory(src_page_dir: &mut Page, dst_page_dir: &mut Page) {
+    let page_entries = PAGE_SIZE / core::mem::size_of::<usize>();
+    let src_page_dir_data = src_page_dir.cast_to::<usize>();
+    let dst_page_dir_data = dst_page_dir.cast_to::<usize>();
+
+    for i in 0..page_entries {
+        if i * PAGE_SIZE.pow(2) > KERNEL_BASE {
+            break;
+        }
+
+        let src_page_dir_entry = src_page_dir_data[i];
+        let src_page_dir_flags = PTE_FLAGS!(src_page_dir_entry);
+
+        // Empty page directory entry
+        if src_page_dir_entry & PTE_P == 0 {
+            continue;
+        }
+
+        // Allocate page directory entry
+        let mut new_page_dir = allocate_page().expect("[ERROR] Failed to allocate page");
+        let new_page_dir_address = V2P!(new_page_dir.as_ptr() as usize);
+        dst_page_dir_data[i] = new_page_dir_address | src_page_dir_flags;
+
+        // Avoid calling walk_page_dir here due to lookup slowdown
+        let dst_page_dir_entry = dst_page_dir_data[i];
+        let dst_page_dir_address = P2V!(PTE_ADDRESS!(dst_page_dir_entry)) as *mut usize;
+        let dst_page_table_data = from_raw_parts_mut(dst_page_dir_address, PAGE_SIZE / 4);
+
+        let src_page_dir_entry = src_page_dir_data[i];
+        let src_page_dir_address = P2V!(PTE_ADDRESS!(src_page_dir_entry)) as *mut usize;
+        let src_page_table_data = from_raw_parts_mut(src_page_dir_address, PAGE_SIZE / 4);
+
+        for j in 0..page_entries {
+            // Empty page table entry
+            if src_page_table_data[j] & PTE_P == 0 {
+                continue;
+            }
+
+            let src_page_address = PTE_ADDRESS!(src_page_table_data[j]);
+            let src_page_flags = PTE_FLAGS!(src_page_table_data[j]);
+            let mut new_page = allocate_page().expect("[ERROR] Failed to allocate page");
+            let new_page_address = V2P!(new_page.as_ptr() as usize);
+            dst_page_table_data[j] = new_page_address | src_page_flags;
+
+            mem_move(
+                P2V!(src_page_address) as *mut u8,
+                P2V!(new_page_address) as *mut u8,
+                PAGE_SIZE,
+            );
+        }
+    }
+}
+
+pub fn wait() {
+    let scheduler = unsafe { SCHEDULER.lock() };
+    let process_list = unsafe { PROCESS_LIST.lock() };
+    let parent = unsafe { scheduler.current_process.as_ref().unwrap() };
+
+    loop {
+        let mut has_children = false;
+
+        // Check if any children are still alive
+        for process in process_list.list.iter() {
+            if process.lock().parent.is_none() {
+                continue;
+            }
+
+            let parent_pid = process.lock().parent.as_ref().unwrap().lock().pid;
+            if parent_pid != parent.lock().pid {
+                continue;
+            }
+
+            if process.lock().state == ProcessState::KILLED {
+                continue;
+            }
+
+            has_children = true;
+        }
+
+        if has_children == false {
+            return;
+        }
+
+        sleep(parent.as_ref() as *const SpinMutex<Process> as usize);
+    }
 }

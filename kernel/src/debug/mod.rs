@@ -1,6 +1,7 @@
 use crate::{apic::mp::get_my_cpu, println, scheduler::scheduler::PROCESS_LIST};
 
 pub mod interrupts;
+pub mod vm;
 
 pub fn debug_cpu() {
     let cpu = get_my_cpu().unwrap();
@@ -17,5 +18,5 @@ pub fn debug_cpu() {
 
 pub fn debug_process_list() {
     let process_list = unsafe { PROCESS_LIST.lock() };
-    println!("{:#?}", process_list.0);
+    println!("{:#?}", process_list.list);
 }

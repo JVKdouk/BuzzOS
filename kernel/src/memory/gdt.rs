@@ -1,6 +1,6 @@
 use core::mem::size_of;
 
-use crate::apic::mp::{get_my_cpu, CPUS};
+use crate::apic::mp::get_my_cpu;
 use crate::memory::defs::*;
 use crate::x86::helpers::load_cs;
 use crate::{println, x86::helpers::lgdt};
@@ -109,7 +109,7 @@ impl DescriptorFlags {
     pub const USER_DATA: u64 = Self::KERNEL_DATA | Self::DPL_RING_3.bits();
 }
 
-pub fn setup_local_gdt() {
+pub fn setup_cpu_gdt() {
     let mut cpu = get_my_cpu().unwrap();
     let mut gdt = &mut cpu.gdt.lock();
     let mut taskstate = cpu.taskstate.lock();
@@ -128,6 +128,6 @@ pub fn setup_local_gdt() {
 }
 
 pub fn setup_gdt() {
-    setup_local_gdt();
+    setup_cpu_gdt();
     println!("[KERNEL] CPU Descriptor Table Initialized ");
 }

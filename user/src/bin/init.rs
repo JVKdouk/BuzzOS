@@ -6,7 +6,13 @@ use user::libs::*;
 
 #[no_mangle]
 pub extern "C" fn _start() {
-    system_call::exec("/sh");
+    let fork_id = system_call::fork();
+
+    if fork_id == 0 {
+        system_call::exec("/sh");
+    } else {
+        system_call::wait();
+    }
 
     loop {}
 }

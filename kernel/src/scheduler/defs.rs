@@ -53,7 +53,7 @@ pub mod process {
     }
 
     #[repr(C)]
-    #[derive(Default, Debug, Clone)]
+    #[derive(Default, Debug, Clone, Copy)]
     pub struct Context {
         pub edi: usize,
         pub esi: usize,
@@ -72,12 +72,17 @@ pub mod process {
         pub trapframe: Option<*mut TrapFrame>,
         pub kernel_stack: Option<*mut usize>,
         pub mem_size: usize,
+        pub parent: Option<Arc<SpinMutex<Process>>>,
         pub sleep_object: usize,
         pub current_working_directory: String,
         pub name: String,
     }
 
-    pub struct ProcessList(pub Vec<Arc<SpinMutex<Process>>>);
+    pub struct ProcessList {
+        pub list: Vec<Arc<SpinMutex<Process>>>,
+        pub next_to_visit: usize,
+        pub next_pid: usize,
+    }
 }
 
 pub mod scheduler {

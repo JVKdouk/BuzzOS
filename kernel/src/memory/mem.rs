@@ -7,7 +7,10 @@ use lazy_static::lazy_static;
 
 use crate::{sync::spin_mutex::SpinMutex, x86::helpers::stosb, P2V, ROUND_UP};
 
-use super::defs::{MemoryRegion, Page, KERNEL_BASE};
+use super::{
+    defs::{MemoryRegion, KERNEL_BASE, PAGE_SIZE},
+    error::MemoryError,
+};
 
 extern "C" {
     static KERNEL_END: u8;
@@ -23,34 +26,17 @@ lazy_static! {
     };
 }
 
-pub fn memset(address: *mut u8, value: u8, length: usize) {
+pub fn mem_set(address: *mut u8, value: u8, length: usize) {
     stosb(address as usize, value, length);
 }
 
-pub unsafe fn memmove(src: usize, dst: usize, mut length: usize) -> *mut usize {
-    let mut src = src as *mut u8;
-    let mut dst = dst as *mut u8;
-
-    if src < dst && src.offset(length as isize) > dst {
-        src = src.offset(length as isize);
-        dst = src.offset(length as isize);
-
-        while length > 0 {
-            length -= 1;
-            dst = dst.offset(-1);
-            src = src.offset(-1);
-            *dst = *src;
-        }
-    } else {
-        while length > 0 {
-            length -= 1;
-            *dst = *src;
-            dst = dst.offset(1);
-            src = src.offset(1);
-        }
+pub unsafe fn mem_move(mut src: *mut u8, mut dst: *mut u8, mut length: usize) {
+    while length > 0 {
+        length -= 1;
+        *dst = *src;
+        dst = dst.offset(1);
+        src = src.offset(1);
     }
-
-    return dst as *mut usize;
 }
 
 /// Defines a memory region from start (pointer) to end (integer). This is used
@@ -67,10 +53,10 @@ impl MemoryRegion {
     }
 
     /// Gets the next page available and increase the counter. Once no more pages are available,
-    /// raises an exception.
-    pub fn next(&mut self, number_pages: usize) -> Result<*mut u8, &'static str> {
-        if self.index as usize + 4096 * number_pages > self.end {
-            return Err("[ERR] Failure to Allocate Page");
+    /// it raises an OutOfMemory exception.
+    pub fn next(&mut self, number_pages: usize) -> Result<*mut u8, MemoryError> {
+        if self.index as usize + PAGE_SIZE * number_pages > self.end {
+            return Err(MemoryError::OutOfMemory);
         }
 
         let address_index_offset = (self.index * 4096) as usize;

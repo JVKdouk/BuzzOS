@@ -2,7 +2,6 @@
 ; the process being called.
 
 extern interrupt_manager
-extern vm_corruption_checker
 
 global trap_enter
 global trap_return

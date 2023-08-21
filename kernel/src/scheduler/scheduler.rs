@@ -2,16 +2,12 @@ use alloc::sync::Arc;
 
 use crate::{
     apic::mp::get_my_cpu,
-    debug::{
-        debug_cpu, debug_process_list,
-        interrupts::{debug_cpu_interrupts, decode_eflags, read_cpu_number_cli},
-    },
     memory::defs::KERNEL_BASE,
     memory::vm::KERNEL_PAGE_DIR,
     println,
-    scheduler::{process::switch_user_virtual_memory, sleep::wakeup},
+    scheduler::process::switch_user_virtual_memory,
     sync::spin_mutex::SpinMutex,
-    x86::helpers::{hlt, load_cr3, read_eflags, sti},
+    x86::helpers::{load_cr3, sti},
     V2P,
 };
 
@@ -104,6 +100,8 @@ impl Scheduler {
                 core::hint::spin_loop(); // Hint to the processor that it should save power here
                 continue;
             };
+
+            println!("RUNNING {}", process.lock().name);
 
             let mut process_lock = process.lock();
             let process_context = process_lock.context.expect("[FATAL] No Context");

@@ -3,10 +3,8 @@ use alloc::string::ToString;
 use alloc::vec::Vec;
 use alloc::{string::String, vec};
 
-use crate::{
-    debug::interrupts::read_cpu_number_cli, println, scheduler::exec::exec,
-    sync::spin_mutex::SpinMutex,
-};
+use crate::filesystem::log::setup_log;
+use crate::{println, sync::spin_mutex::SpinMutex};
 
 use super::{
     cache::{read_disk_block, CacheBlock},
@@ -14,14 +12,14 @@ use super::{
 };
 
 #[derive(Debug, Clone, Copy, Default)]
-struct SuperBlock {
-    size: u32,
-    number_blocks: u32,
-    number_inodes: u32,
-    number_logs: u32,
-    log_start_address: u32,
-    inode_start_address: u32,
-    bitmap_start_address: u32,
+pub struct SuperBlock {
+    pub size: u32,
+    pub number_blocks: u32,
+    pub number_inodes: u32,
+    pub number_logs: u32,
+    pub log_start_address: u32,
+    pub inode_start_address: u32,
+    pub bitmap_start_address: u32,
 }
 
 const INODE_SIZE: usize = core::mem::size_of::<INode>();
@@ -79,7 +77,7 @@ impl SuperBlock {
 pub const SECONDARY_BLOCK_ID: u32 = 1;
 pub const ROOT_INODE_NUMBER: u32 = 1;
 
-static SUPER_BLOCK_CACHE: SpinMutex<SuperBlock> = SpinMutex::new(SuperBlock::new());
+pub static SUPER_BLOCK_CACHE: SpinMutex<SuperBlock> = SpinMutex::new(SuperBlock::new());
 
 pub fn load_super_block() {
     let cache_data = read_disk_block(SECONDARY_BLOCK_ID, 1).lock().data.as_ptr();
@@ -108,7 +106,6 @@ pub fn read_inode_data(inode: &INode, mut offset: u32, mut length: u32) -> Vec<u
     let data = inode.data;
 
     assert!(offset <= inode.size);
-    assert!(length >= 0);
 
     // Truncate if length and offset are outside the side of the inode
     if offset + length > inode.size {
@@ -151,6 +148,8 @@ pub fn setup_file_system() {
         "[KERNEL] Filesystem Initialized ({} inodes)",
         SUPER_BLOCK_CACHE.lock().number_inodes
     );
+
+    setup_log();
 }
 
 pub fn read_dir(inode: &INode) -> Option<Vec<DirectoryEntry>> {
@@ -172,6 +171,10 @@ pub fn read_dir(inode: &INode) -> Option<Vec<DirectoryEntry>> {
     };
 
     Some(dir_children.to_owned())
+}
+
+pub fn get_path_filename(path: String) -> String {
+    path.split('/').last().unwrap().to_string()
 }
 
 pub fn find_inode_by_path(path: String) -> Option<INode> {

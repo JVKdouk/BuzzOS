@@ -3,7 +3,7 @@
 use alloc::sync::Arc;
 
 use crate::{
-    println, scheduler::sleep::sleep, structures::heap_linked_list::HeapLinkedList,
+    scheduler::sleep::sleep, structures::heap_linked_list::HeapLinkedList,
     sync::spin_mutex::SpinMutex,
 };
 

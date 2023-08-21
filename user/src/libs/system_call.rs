@@ -7,6 +7,8 @@ enum SystemCallTable {
     Yield = 2,
     Sleep = 3,
     Exec = 5,
+    Fork = 6,
+    Wait = 7,
 }
 
 struct SystemCall {
@@ -39,7 +41,7 @@ impl SystemCall {
     arg_setup!(arg1);
     arg_setup!(arg2);
 
-    pub fn call(&self) {
+    pub fn call(&self) -> usize {
         let arg0 = self.arg0.unwrap_or(0);
         let arg1 = self.arg1.unwrap_or(0);
         let arg2 = self.arg2.unwrap_or(0);
@@ -53,6 +55,16 @@ impl SystemCall {
               in("eax") self.number
             )
         }
+
+        let mut out;
+        unsafe {
+            core::arch::asm!(
+              "mov {}, eax",
+              out(reg) out,
+            )
+        };
+
+        out
     }
 }
 
@@ -64,4 +76,12 @@ pub fn exec(path: &str) {
         .arg0(str_address)
         .arg1(str_size)
         .call();
+}
+
+pub extern "C" fn fork() -> usize {
+    SystemCall::new(SystemCallTable::Fork as usize).call()
+}
+
+pub extern "C" fn wait() {
+    SystemCall::new(SystemCallTable::Wait as usize).call();
 }

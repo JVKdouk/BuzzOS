@@ -5,7 +5,6 @@ use crate::{
     },
     devices::console::CONSOLE,
     filesystem::ide::interrupt_ide,
-    println,
     scheduler::{defs::process::TrapFrame, scheduler::SCHEDULER},
 };
 

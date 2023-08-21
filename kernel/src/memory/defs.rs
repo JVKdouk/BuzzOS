@@ -59,6 +59,13 @@ macro_rules! PTE_ADDRESS {
     };
 }
 
+#[macro_export]
+macro_rules! PTE_FLAGS {
+    ($n:expr) => {
+        $n & 0xFFF
+    };
+}
+
 /// GDT Definitions
 pub const NUMBER_DESCRIPTORS: usize = 7;
 

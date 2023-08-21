@@ -1,8 +1,13 @@
 use crate::{
     apic::local_apic::local_apic_acknowledge,
+    interrupts::system_calls::exit,
+    memory::{
+        defs::{Page, PTE_U},
+        vm::walk_page_dir,
+    },
     println,
     scheduler::{defs::process::TrapFrame, scheduler::SCHEDULER},
-    x86::helpers::{hlt, read_cr2},
+    x86::helpers::read_cr2,
 };
 
 use super::{
@@ -20,11 +25,42 @@ pub extern "x86-interrupt" fn breakpoint_handler(frame: InterruptStackFrame) {
 }
 
 pub extern "x86-interrupt" fn page_fault(frame: InterruptStackFrame, _error_code: PageFaultErr) {
-    panic!(
-        "[FATAL] Page Fault - eip: 0x{:X} - cr2: 0x{:X}",
-        frame.instruction_pointer,
-        read_cr2()
+    let address = read_cr2();
+
+    // Process hits the return trap. It has finished execution and should be killed.
+    if address == 0xFFFFFFFF {
+        println!("[WARNING] Return Trap");
+        exit();
+    }
+
+    let scheduler = unsafe { SCHEDULER.lock() };
+    let process = scheduler.current_process.as_ref().unwrap();
+
+    let page_dir_ptr = unsafe { process.lock().pgdir.unwrap() };
+    let mut page_dir = Page::new(page_dir_ptr as *mut u8);
+    let page_entry = walk_page_dir(&mut page_dir, address, false);
+
+    // Stack overflow happens when a write is performend on the guard page
+    if page_entry.is_ok() && unsafe { *page_entry.unwrap() & PTE_U == 0 } {
+        println!("[WARNING] Stack Overflow");
+        unsafe { SCHEDULER.force_unlock() };
+        exit();
+    }
+
+    // If a page fault occurs while running the Kernel, we need to panic
+    if scheduler.current_process.is_none() {
+        panic!(
+            "[ERROR] Kernel Page Fault\nEIP: 0x{:X}\nCR2: 0x{:X}",
+            frame.instruction_pointer, address
+        )
+    }
+
+    println!(
+        "[WARNING] Page Fault - eip: 0x{:X} - cr2: 0x{:X}",
+        frame.instruction_pointer, address
     );
+
+    exit();
 }
 
 pub extern "x86-interrupt" fn non_maskable(frame: InterruptStackFrame) {
@@ -40,7 +76,10 @@ pub extern "x86-interrupt" fn bound_range(frame: InterruptStackFrame) {
 }
 
 pub extern "x86-interrupt" fn invalid_tss(frame: InterruptStackFrame, _err: u32) {
-    println!("EXCEPTION: INVALID TSS {:#X?}, Error Code: {:X}\n", frame, _err);
+    println!(
+        "EXCEPTION: INVALID TSS {:#X?}, Error Code: {:X}\n",
+        frame, _err
+    );
 }
 
 pub extern "x86-interrupt" fn double_fault_handler(frame: InterruptStackFrame, _err: u32) {

@@ -1,4 +1,4 @@
-use core::{future::Future, panic, pin::Pin, task::Poll};
+use core::panic;
 
 /// IDE Driver Interface responsible for loading and storing data on the disk.
 /// You can read more about the driver here: https://wiki.osdev.org/PCI_IDE_Controller

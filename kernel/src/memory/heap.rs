@@ -1,7 +1,8 @@
+/// Heap Allocator by Phil Opperman
 use alloc::alloc::{GlobalAlloc, Layout};
 
 use crate::{
-    memory::{mem::MEMORY_REGION, vm::allocate_pages},
+    memory::vm::allocate_pages,
     println,
     structures::static_linked_list::StaticLinkedListNode,
     sync::spin_mutex::{SpinMutex, SpinMutexGuard},
@@ -178,15 +179,13 @@ impl LinkedListAllocator {
 pub fn setup_heap() {
     println!("[KERNEL] Setting Up Heap");
 
-    let page_address = allocate_pages(HEAP_PAGES).as_ptr() as usize;
+    let heap_page_start = allocate_pages(HEAP_PAGES).expect("[ERROR] Out of Memory");
+    let heap_address = heap_page_start.as_ptr() as usize;
+    let heap_size = PAGE_SIZE * HEAP_PAGES;
 
-    unsafe {
-        HEAP_ALLOCATOR
-            .lock()
-            .init(page_address, PAGE_SIZE * HEAP_PAGES);
-    }
+    unsafe { HEAP_ALLOCATOR.lock().init(heap_address, heap_size) };
 
+    // Enable heap usage across the system
     *IS_HEAP_ENABLED.lock() = true;
-
     println!("[KERNEL] Allocated {} Heap Pages", HEAP_PAGES);
 }

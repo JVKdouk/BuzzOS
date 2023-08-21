@@ -63,6 +63,8 @@ pub unsafe extern "C" fn _start() -> ! {
     scheduler::process::spawn_init_process();
     scheduler::scheduler::setup_scheduler();
 
+    loop {}
+
     // Should never proceeed
     panic!("[FATAL] Returned from Scheduler");
 }

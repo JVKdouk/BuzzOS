@@ -13,26 +13,6 @@ init_start:
     mov edx, 5
     int 64
 
-    ; mov eax, [0x400000]
-
-    ; ; 4 Parameters
-    ; mov ecx, 0x3
-    ; mov edx, 0x2
-    ; mov esi, 0x1
-    ; mov edi, 0x0
-
-    ; Print Trapframe
-    ; mov eax, 0x0
-    ; int 64
-
-    ; Yield Process
-    ; mov eax, 0x2
-    ; int 64
-
-    ; Sleep Process
-    ; mov eax, 0x3
-    ; int 64
-    
     jmp $
 
 align 4
