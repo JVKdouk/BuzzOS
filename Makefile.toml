@@ -3,6 +3,7 @@ USER_PROGRAMS = """
 user/init
 user/test
 """
+
 KERNEL_FILES = """
 entry.o
 switch.o
@@ -10,11 +11,19 @@ kernel.o
 trap.o
 int_table.o
 """
+
 BOOTLOADER_FILES = """
 bootloader/src/linker.ld
 build/boot.o
 build/bootloader.a
 """
+
+QEMU = "qemu-system-i386"
+QEMU_OPTIONS = "-nographic -smp 1 -M pc-i440fx-6.1 -no-shutdown -no-reboot -m 512"
+QEMU_STORAGE_DEVICE = "-drive file=build/fs.img,index=1,media=disk -drive file=build/buzz.img,index=0,media=disk,format=raw"
+
+[env.test]
+CARGO_PARAMS = "--features test"
 
 # Ensure everything is in place and clear build folder
 [tasks.clean]
@@ -60,7 +69,6 @@ script = [
     "cd tools",
     "cargo build",
     "../target/debug/mkfs ../build/fs.img ../build/user",
-    # "dd if=/dev/zero of=build/fs.img count=10000 seek=2",
 ]
 
 # Build Kernel
@@ -77,7 +85,7 @@ script = [
     "nasm -f elf32 src/asm/int_table.asm -o ../build/int_table.o",
     "nasm -f bin src/asm/init.asm -o ../build/init",
 
-    "RUSTFLAGS=-g cargo build --target x86-target.json",
+    "RUSTFLAGS=-g cargo build ${CARGO_PARAMS} --target x86-target.json",
     "cd ..; cp target/x86-target/debug/libbuzz_os_kernel.a build/kernel.o",
 
     # Link Kernel binaries
@@ -86,8 +94,7 @@ script = [
     "rm kernel.o entry.o",
 ]
 
-# Build bootloader asm files
-[tasks.build_run]
+[tasks.build_binary]
 dependencies = ["build_kernel", "build_bootloader", "build_fs"]
 workspace = false
 script = [
@@ -96,25 +103,17 @@ script = [
     "dd if=build/boot.bin of=build/buzz.img conv=notrunc status=none",
     "dd if=build/kernel.elf of=build/buzz.img seek=1 conv=notrunc status=none",
     "rm build/boot.bin",
-
-    # Start OS
-    "qemu-system-i386 -nographic -drive file=build/fs.img,index=1,media=disk -drive file=build/buzz.img,index=0,media=disk,format=raw -smp 1 -M pc-i440fx-6.1 -no-shutdown -no-reboot -m 512",
 ]
 
-# Build bootloader asm files
-[tasks.gdb]
-dependencies = ["build_fs", "build_kernel", "build_bootloader"]
+[tasks.build_run]
+dependencies = ["build_binary"]
+script = ["${QEMU} ${QEMU_STORAGE_DEVICE} ${QEMU_OPTIONS}"]
 workspace = false
-script = [
-    # Generate disk image
-    "dd if=/dev/zero of=build/buzz.img count=10000 status=none",
-    "dd if=build/boot.bin of=build/buzz.img conv=notrunc status=none",
-    "dd if=build/kernel.elf of=build/buzz.img seek=1 conv=notrunc status=none",
-    "rm build/boot.bin",
 
-    # Start OS
-    "qemu-system-i386 -s -S -drive file=build/fs.img,index=1,media=disk -drive file=build/buzz.img,index=0,media=disk,format=raw -smp 2 -no-reboot -no-shutdown -nographic -serial mon:stdio -m 512",
-]
+[tasks.gdb]
+dependencies = ["build_binary"]
+script = ["${QEMU} ${QEMU_STORAGE_DEVICE} ${QEMU_OPTIONS} -s -S"]
+workspace = false
 
 [tasks.dry-run]
 workspace = false

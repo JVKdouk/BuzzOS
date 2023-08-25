@@ -9,7 +9,7 @@ pub struct HeapLinkedList<T> {
 
 pub struct Node<T> {
     pub value: T,
-    pub next: Option<Box<Node<T>>>
+    pub next: Option<Box<Node<T>>>,
 }
 
 impl<T> HeapLinkedList<T> {
@@ -21,11 +21,11 @@ impl<T> HeapLinkedList<T> {
     }
 
     pub fn push(&mut self, value: T) -> &Node<T> {
-        let mut previous_head = core::mem::replace(&mut self.head, None);
+        let previous_head = core::mem::replace(&mut self.head, None);
 
         let node = Box::new(Node {
             value,
-            next: previous_head
+            next: previous_head,
         });
 
         self.head = Some(node);

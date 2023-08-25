@@ -1,24 +1,21 @@
-use core::panic;
+use core::sync::atomic::{AtomicBool, Ordering};
 
 /// UART Serial Communication implementation. COM1 is an external device located at 0x3F8. Communication with it
 /// allows us to setup UART configuration and send our first bit of data.
 /// More information can be found here https://wiki.osdev.org/UART.
 use lazy_static::lazy_static;
 
-use crate::{
-    sync::spin_mutex::SpinMutex,
-    x86::helpers::{inb, outb},
-};
+use crate::x86::helpers::{inb, outb};
 
-use super::defs::COM1;
+use super::{defs::COM1, error::SerialError};
 
 // Ensures safety when talking to UART
 lazy_static! {
-    pub static ref IS_UART_ENABLED: SpinMutex<bool> = SpinMutex::new(false);
+    pub static ref IS_UART_ENABLED: AtomicBool = AtomicBool::new(false);
 }
 
 /// Initialize UART and perform its configuration. In case UART is not avaialable, it returns an error.
-pub fn uart_init() -> Result<(), ()> {
+pub fn uart_init() -> Result<u16, SerialError> {
     outb(COM1 + 2, 0x00); // FIFO Control Register
     outb(COM1 + 3, 0x80); // Line Control (Unlock Divisor)
     outb(COM1 + 0, (115200 / 9600) as u8); // Data Buffer
@@ -29,25 +26,20 @@ pub fn uart_init() -> Result<(), ()> {
 
     // If Line Status = 0xFF, no Serial Port is available
     if inb(COM1 + 5) == 0xFF {
-        return Err(());
+        return Err(SerialError::PortUnavailable);
     }
 
-    *IS_UART_ENABLED.lock() = true;
+    IS_UART_ENABLED.store(true, Ordering::Relaxed);
 
     // Enable interrupts
     inb(COM1 + 2);
     inb(COM1 + 0);
 
-    Ok(())
+    Ok(COM1)
 }
 
 /// Puts a character in the Serial Port
 pub fn uart_put_char(c: char) {
-    // UART safety check
-    if *IS_UART_ENABLED.lock() == false {
-        panic!("[FATAL] UART is not open");
-    }
-
     // Serial needs to be ready. Waits for status line to be ready before
     // sending a character.
     for _ in 0..128 {
@@ -62,12 +54,8 @@ pub fn uart_put_char(c: char) {
 }
 
 pub fn uart_get_char() -> Option<u8> {
-    // if !(*IS_UART_ENABLED.lock()) {
-    //     return None;
-    // }
-
-    let status = inb(COM1 + 5) & 0x1;
-    if status == 0 {
+    // Check for Serial status line
+    if inb(COM1 + 5) & 0x1 == 0 {
         return None;
     }
 

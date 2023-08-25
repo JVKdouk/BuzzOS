@@ -1,3 +1,5 @@
+use core::sync::atomic::{AtomicBool, Ordering};
+
 use alloc::vec::Vec;
 
 use crate::{
@@ -6,11 +8,13 @@ use crate::{
     x86::helpers::{inw, outw},
 };
 
+use super::error::PCIError;
+
 const PCI_CONFIG_REGISTER: u16 = 0xCF8;
 const PCI_DATA_REGISTER: u16 = 0xCFC;
 
 pub static PCI_DEVICES: SpinMutex<Vec<PCIDevice>> = SpinMutex::new(Vec::new());
-pub static mut IS_PCI_MAPPED: bool = false;
+pub static IS_PCI_MAPPED: AtomicBool = AtomicBool::new(false);
 
 #[derive(Debug, Clone, Copy)]
 pub struct PCIDevice {
@@ -62,7 +66,7 @@ fn pci_read_dword(bus: u8, device: u8, function: u8, register: u8) -> u32 {
     outw(PCI_CONFIG_REGISTER, address);
 
     // Read the data in the address
-    return inw(PCI_DATA_REGISTER);
+    inw(PCI_DATA_REGISTER)
 }
 
 fn get_type_zero_table(bus: u8, device: u8, function: u8) -> TypeZeroDeviceTable {
@@ -75,12 +79,12 @@ fn get_type_zero_table(bus: u8, device: u8, function: u8) -> TypeZeroDeviceTable
     }
 }
 
-fn get_header(bus: u8, device: u8, function: u8) -> Result<PCIHeader, ()> {
+fn get_device_header(bus: u8, device: u8, function: u8) -> Result<PCIHeader, PCIError> {
     let reg0 = pci_read_dword(bus, device, function, 0);
 
     // Vendor ID is undefined, no device here
     if reg0 & 0xFFFF == 0xFFFF {
-        return Err(());
+        return Err(PCIError::DeviceNotFound);
     }
 
     let reg1 = pci_read_dword(bus, device, function, 1);
@@ -101,15 +105,16 @@ fn get_header(bus: u8, device: u8, function: u8) -> Result<PCIHeader, ()> {
     Ok(header)
 }
 
-fn list_pci_device(bus: u8, device: u8, function: u8) {
-    let Ok(header) = get_header(bus, device, function) else {
+fn push_pci_device(bus: u8, device: u8, function: u8) {
+    let Ok(header) = get_device_header(bus, device, function) else {
         return;
     };
 
+    // One PCI device can have multiple functions that behave like different devices
     let is_multi_function = header.header_type & 0x80 != 0;
     if is_multi_function {
         for _function in 1..8 {
-            list_pci_device(bus, device, _function);
+            push_pci_device(bus, device, _function);
         }
     }
 
@@ -120,27 +125,23 @@ fn list_pci_device(bus: u8, device: u8, function: u8) {
         None
     };
 
-    let pci_device = PCIDevice {
+    PCI_DEVICES.lock().push(PCIDevice {
         header,
         bus,
         device,
         function,
         body_0,
-    };
-
-    unsafe { PCI_DEVICES.lock().push(pci_device) };
+    });
 }
 
 pub fn map_pci_buses() {
+    // We must search for all available PCI devices
     for bus_index in 0..256 {
         for device_index in 0..32 {
-            list_pci_device(bus_index as u8, device_index as u8, 0);
+            push_pci_device(bus_index as u8, device_index as u8, 0);
         }
     }
 
+    IS_PCI_MAPPED.store(true, Ordering::Relaxed);
     println!("[KERNEL] PCI Devices Mapped");
-
-    unsafe {
-        IS_PCI_MAPPED = true;
-    }
 }

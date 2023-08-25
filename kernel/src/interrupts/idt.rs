@@ -63,7 +63,7 @@ impl Gate<InterruptHandler> {
     #[inline]
     pub fn set_handler_fn(&mut self, handler: InterruptHandler) {
         let handler = handler as u32;
-        unsafe { self.set_handler_addr(handler) };
+        self.set_handler_addr(handler);
     }
 }
 
@@ -71,7 +71,7 @@ impl Gate<InterruptHandlerWithErr> {
     #[inline]
     pub fn set_handler_fn(&mut self, handler: InterruptHandlerWithErr) {
         let handler = handler as u32;
-        unsafe { self.set_handler_addr(handler) };
+        self.set_handler_addr(handler);
     }
 }
 
@@ -79,7 +79,7 @@ impl Gate<PageFaultHandler> {
     #[inline]
     pub fn set_handler_fn(&mut self, handler: PageFaultHandler) {
         let handler = handler as u32;
-        unsafe { self.set_handler_addr(handler) };
+        self.set_handler_addr(handler);
     }
 }
 

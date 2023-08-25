@@ -1,4 +1,4 @@
-use core::panic;
+use core::{panic, sync::atomic::Ordering};
 
 /// IDE Driver Interface responsible for loading and storing data on the disk.
 /// You can read more about the driver here: https://wiki.osdev.org/PCI_IDE_Controller
@@ -87,7 +87,7 @@ fn wait_ide() -> Result<(), u8> {
 /// a PCI device, and as such is visible from the PCI device list. We must acquire the device information
 /// in order to establish the running mode (compatibility or native) of the disk device.
 unsafe fn find_ide_device() -> Result<PCIDevice, ()> {
-    if !IS_PCI_MAPPED {
+    if IS_PCI_MAPPED.load(Ordering::Relaxed) == false {
         return Err(());
     }
 
@@ -167,10 +167,10 @@ pub fn start_ide_request(block: &SpinMutex<DiskBlock>) {
 /// must be fetched from the IDE buffer.
 pub fn interrupt_ide() {
     let mut ide_queue = IDE_QUEUE.lock();
-    let mut ide_block = ide_queue.pop();
+    let ide_block = ide_queue.pop();
     let mut block = ide_block.as_ref().unwrap().lock();
 
-    let wait_result = wait_ide().expect("[ERROR] IDE Failure");
+    wait_ide().expect("[ERROR] IDE Failure");
 
     // Request is a read, must transfer data from IDE buffer
     if block.dirty == false {

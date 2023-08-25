@@ -12,8 +12,8 @@ pub fn decode_eflags() {
 
 pub fn debug_cpu_interrupts() {
     let if_enabled = (read_eflags() >> 9) & 0x1;
-    let cpu_interrupts = unsafe { *get_my_cpu().unwrap().enable_interrupt.get() };
-    let number_cli = unsafe { *get_my_cpu().unwrap().number_cli.get() };
+    let cpu_interrupts = get_my_cpu().get_interrupt_state();
+    let number_cli = get_my_cpu().get_cli();
 
     println!("\n--- CPU Interrupts ---");
     println!("EFlags Interrupt Enabled: {}", if_enabled > 0);
@@ -23,7 +23,7 @@ pub fn debug_cpu_interrupts() {
 }
 
 pub fn read_cpu_number_cli() {
-    let number_cli = unsafe { *get_my_cpu().unwrap().number_cli.get() };
+    let number_cli = get_my_cpu().get_cli();
 
     if number_cli > 0 {
         panic!("[ERROR] Number CLI is {}", number_cli);

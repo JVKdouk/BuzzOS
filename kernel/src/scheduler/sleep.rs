@@ -9,8 +9,10 @@ use super::scheduler::{PROCESS_LIST, SCHEDULER};
 pub fn sleep(object: usize) {
     let mut scheduler_lock = unsafe { SCHEDULER.lock() };
 
-    let mut current_process_lock =
-        unsafe { scheduler_lock.get_current_process() }.expect("[ERROR] Sleep on empty scheduler");
+    let current_process_lock = scheduler_lock
+        .get_current_process()
+        .expect("[ERROR] Sleep on empty scheduler");
+
     let mut current_process = current_process_lock.lock();
 
     // Put process to sleep and release lock

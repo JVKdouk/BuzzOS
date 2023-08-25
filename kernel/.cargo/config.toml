@@ -5,6 +5,3 @@ build-std-features = ["compiler-builtins-mem"]
 [build]
 rustflags = ["--emit", "asm", "-C", "llvm-args=-x86-asm-syntax=intel", "-C", "save-temps", "--emit=llvm-ir"]
 target = "x86-target.json"
-
-[target.'cfg(target_os = "none")']
-runner = "qemu-system-i386 -cdrom ./build/os.iso"

@@ -89,7 +89,7 @@ fn clear_block(block: CacheBlock) {
     block.lock().data = [0; BLOCK_SIZE];
 }
 
-pub fn get_inode(device: u32, inode_number: u32) -> INode {
+pub fn get_inode(inode_number: u32) -> INode {
     let inode_offset = INODE_SIZE / BLOCK_SIZE;
     let inode_start = SUPER_BLOCK_CACHE.lock().inode_start_address;
     let inode_block = inode_start + inode_number * inode_offset as u32;
@@ -103,8 +103,6 @@ pub fn get_inode(device: u32, inode_number: u32) -> INode {
 }
 
 pub fn read_inode_data(inode: &INode, mut offset: u32, mut length: u32) -> Vec<u8> {
-    let data = inode.data;
-
     assert!(offset <= inode.size);
 
     // Truncate if length and offset are outside the side of the inode
@@ -138,7 +136,7 @@ pub fn read_inode_data(inode: &INode, mut offset: u32, mut length: u32) -> Vec<u
 }
 
 pub fn get_root_inode() -> INode {
-    get_inode(SECONDARY_BLOCK_ID, ROOT_INODE_NUMBER)
+    get_inode(ROOT_INODE_NUMBER)
 }
 
 pub fn setup_file_system() {
@@ -178,7 +176,7 @@ pub fn get_path_filename(path: String) -> String {
 }
 
 pub fn find_inode_by_path(path: String) -> Option<INode> {
-    let mut dirs;
+    let dirs;
 
     if path.chars().nth(0).unwrap() == '/' {
         dirs = path.split('/').skip(1);
@@ -197,7 +195,7 @@ pub fn find_inode_by_path(path: String) -> Option<INode> {
         for entry in entries {
             let name = core::str::from_utf8(&entry.name).unwrap();
             if name.trim_matches(char::from(0)) == dir {
-                current_inode = get_inode(SECONDARY_BLOCK_ID, entry.inode_number);
+                current_inode = get_inode(entry.inode_number);
                 found = true;
                 break;
             }

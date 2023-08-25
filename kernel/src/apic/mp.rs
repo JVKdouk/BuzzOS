@@ -1,4 +1,7 @@
-use core::{cell::UnsafeCell, mem::size_of, sync::atomic::AtomicI32};
+use core::{
+    mem::size_of,
+    sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering},
+};
 
 use lazy_static::lazy_static;
 
@@ -14,21 +17,19 @@ use crate::{
 use super::{io_apic::IOApic, local_apic::get_local_apic_id};
 
 pub const MAX_NUM_CPUS: usize = 8;
-
 pub const MP_PROCESS: u8 = 0x0;
 pub const MP_BUS: u8 = 0x01;
 pub const MP_IO_APIC: u8 = 0x2;
 pub const MP_IO_INTERRUPT: u8 = 0x3;
 pub const MP_LOCAL_INTERRUPT: u8 = 0x4;
 
+pub static LOCAL_APIC: AtomicUsize = AtomicUsize::new(0);
+
 lazy_static! {
     pub static ref CPUS: [Option<CPU>; MAX_NUM_CPUS] = setup_mp();
-    static ref MP_TABLE: &'static MPFPStructure = unsafe { find_mp_table().as_ref().unwrap() };
-    static ref MP_CONFIG: &'static MPConfigTable = unsafe { &*find_mp_config(&MP_TABLE).unwrap() };
-    pub static ref LOCAL_APIC: Option<usize> = Some(MP_CONFIG.local_apic_address);
 }
 
-pub static mut IS_CPU_MAPPED: bool = false;
+pub static IS_CPU_MAPPED: AtomicBool = AtomicBool::new(false);
 pub static mut IO_APIC: SpinMutex<Option<*mut IOApic>> = SpinMutex::new(None);
 
 #[derive(Debug)]
@@ -37,8 +38,8 @@ pub struct CPU {
     pub context: SpinMutex<Context>,
     pub taskstate: SpinMutex<Option<TaskStateSegment>>,
     pub gdt: SpinMutex<GlobalDescriptorTable>,
-    pub number_cli: UnsafeCell<u32>, // Number of CLI (Clear Interrupt) issued
-    pub enable_interrupt: UnsafeCell<bool>, // State of interrupts before pushcli
+    pub number_cli: AtomicU32, // Number of CLI (Clear Interrupt) issued
+    pub enable_interrupt: AtomicBool, // State of interrupts before pushcli
 }
 
 unsafe impl Sync for CPU {}
@@ -103,21 +104,38 @@ impl CPU {
             context: SpinMutex::new(Default::default()),
             gdt: SpinMutex::new(GlobalDescriptorTable::new()),
             taskstate: SpinMutex::new(None),
-            enable_interrupt: UnsafeCell::new(false),
-            number_cli: UnsafeCell::new(0),
+            enable_interrupt: AtomicBool::new(false),
+            number_cli: AtomicU32::new(0),
         }
+    }
+
+    pub fn get_cli(&self) -> u32 {
+        self.number_cli.load(Ordering::Relaxed)
+    }
+
+    pub fn set_cli(&self, value: u32) {
+        self.number_cli.store(value, Ordering::Relaxed);
+    }
+
+    pub fn get_interrupt_state(&self) -> bool {
+        self.enable_interrupt.load(Ordering::Relaxed)
+    }
+
+    pub fn set_interrupt_state(&self, value: bool) {
+        self.enable_interrupt.store(value, Ordering::Relaxed);
     }
 }
 
-pub fn get_my_cpu<'a>() -> Option<&'a CPU> {
+pub fn get_my_cpu<'a>() -> &'a CPU {
     let apic_id = get_local_apic_id() as u8;
 
     for cpu in CPUS.iter() {
         if cpu.is_some() && cpu.as_ref().unwrap().apic_id == apic_id {
-            return Some(cpu.as_ref().unwrap());
+            return cpu.as_ref().unwrap();
         }
     }
-    return None;
+
+    panic!("[FATAL] CPU has not been found");
 }
 
 pub unsafe fn check_sum(address: *const u8, length: usize) -> u8 {
@@ -135,6 +153,10 @@ pub fn setup_cpus() -> *const Option<CPU> {
 pub fn setup_mp() -> [Option<CPU>; MAX_NUM_CPUS] {
     let mp_table = unsafe { find_mp_table().as_ref().unwrap() };
     let mp_conf = unsafe { find_mp_config(mp_table).unwrap() };
+
+    // Store local apic address for the CPU
+    let local_apic_address = unsafe { (*mp_conf).local_apic_address };
+    LOCAL_APIC.store(local_apic_address, Ordering::Relaxed);
 
     if mp_table.imcp > 0 {
         // Interrupt Mode Configuration Register
@@ -184,8 +206,8 @@ unsafe fn parse_config_table(config_table: *const MPConfigTable) -> [Option<CPU>
                 continue;
             }
 
-            // Undefined entry, panic
-            _ => panic!("[FATAL] MP Table Failure"),
+            // Undefined entry
+            _ => {}
         }
     }
 

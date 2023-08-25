@@ -1,3 +1,5 @@
+use core::sync::atomic::{AtomicUsize, Ordering};
+
 /// Implementation of memory related utilities. Notice Virtual Memory are located in vm.rs.
 /// Here, you can find the implementation of the Memory Region, an iterator that statically
 /// maps the entirety of the Memory Region (from where the Kernel finishes being linked to the
@@ -16,12 +18,12 @@ extern "C" {
     static KERNEL_END: u8;
 }
 
-pub static mut PHYSICAL_TOP: SpinMutex<usize> = SpinMutex::new(0xE000000);
+pub static PHYSICAL_TOP: AtomicUsize = AtomicUsize::new(0xE000000);
 
 lazy_static! {
     pub static ref MEMORY_REGION: SpinMutex<MemoryRegion> = {
         let start = unsafe { ROUND_UP!(&KERNEL_END as *const u8 as usize, 4096) };
-        let end = P2V!(unsafe { *PHYSICAL_TOP.lock() });
+        let end = P2V!(PHYSICAL_TOP.load(Ordering::Relaxed));
         SpinMutex::new(MemoryRegion::new(start, end))
     };
 }

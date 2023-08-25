@@ -5,7 +5,7 @@ use core::hint::spin_loop as cpu_relax;
 use core::marker::Sync;
 use core::ops::{Deref, DerefMut, Drop};
 use core::option::Option::{self, None, Some};
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
 
 use crate::apic::mp::{get_my_cpu, IS_CPU_MAPPED};
 
@@ -13,7 +13,7 @@ use super::cpu_cli::{pop_cli, push_cli};
 
 pub struct SpinMutex<T: ?Sized> {
     lock: AtomicBool,
-    cpu: UnsafeCell<u8>,
+    cpu: AtomicU8,
     data: UnsafeCell<T>, // We are providing the safety of this cell via locking
 }
 
@@ -34,7 +34,7 @@ impl<T> SpinMutex<T> {
         SpinMutex {
             lock: AtomicBool::new(false),
             data: UnsafeCell::new(data),
-            cpu: UnsafeCell::new(0),
+            cpu: AtomicU8::new(0),
         }
     }
 
@@ -46,22 +46,22 @@ impl<T> SpinMutex<T> {
 
 fn get_current_cpu_id() -> u8 {
     // Check if we already have the lock
-    if unsafe { IS_CPU_MAPPED == true } {
-        let cpu = get_my_cpu().unwrap();
+    if IS_CPU_MAPPED.load(Ordering::Relaxed) {
+        let cpu = get_my_cpu();
         return cpu.apic_id;
     }
 
-    0
+    // Other CPUs have not yet been mapped
+    return 0;
 }
 
-// TODO: Implement Push and Pop CLI here!
 impl<T: ?Sized> SpinMutex<T> {
     fn obtain_lock(&self) {
-        let lock_cpu = unsafe { &mut *self.cpu.get() };
+        let lock_cpu = self.cpu.load(Ordering::Relaxed);
         let current_cpu = get_current_cpu_id();
 
         // If CPU already has the lock, pop the CLI stack
-        if self.lock.load(Ordering::Relaxed) == true && *lock_cpu == current_cpu {
+        if self.lock.load(Ordering::Relaxed) == true && lock_cpu == current_cpu {
             pop_cli();
             return;
         }
@@ -76,7 +76,7 @@ impl<T: ?Sized> SpinMutex<T> {
         }
 
         // Update current CPU that is holding the lock
-        *lock_cpu = current_cpu;
+        self.cpu.store(current_cpu, Ordering::Relaxed);
     }
 
     pub fn lock(&self) -> SpinMutexGuard<T> {

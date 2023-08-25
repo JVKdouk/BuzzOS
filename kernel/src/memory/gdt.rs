@@ -110,8 +110,8 @@ impl DescriptorFlags {
 }
 
 pub fn setup_cpu_gdt() {
-    let mut cpu = get_my_cpu().unwrap();
-    let mut gdt = &mut cpu.gdt.lock();
+    let cpu = get_my_cpu();
+    let gdt = &mut cpu.gdt.lock();
     let mut taskstate = cpu.taskstate.lock();
 
     // Setup TSS, used when switching between DPLs

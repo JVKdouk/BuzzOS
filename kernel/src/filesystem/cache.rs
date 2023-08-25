@@ -87,6 +87,6 @@ pub fn get_cache_block(device: u32, block_number: u32) -> Option<CacheBlock> {
 /// Move the cache block to the head of the list (Most Recently Used) and reduce the reference
 /// count to it. If the list is full, blocks with a reference count of 0 and not dirty are reused.
 pub fn remove_cache_block(block: CacheBlock) {
-    let mut cache = block.lock();
-    let mut list = CACHE_BLOCK_LIST.lock();
+    let cache = block.lock();
+    let list = CACHE_BLOCK_LIST.lock();
 }

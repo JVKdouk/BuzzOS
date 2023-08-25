@@ -1,3 +1,5 @@
+use core::sync::atomic::{AtomicBool, Ordering};
+
 /// Heap Allocator by Phil Opperman
 use alloc::alloc::{GlobalAlloc, Layout};
 
@@ -29,7 +31,7 @@ impl<A> Locked<A> {
 
 #[global_allocator]
 pub static HEAP_ALLOCATOR: Locked<LinkedListAllocator> = Locked::new(LinkedListAllocator::new());
-pub static IS_HEAP_ENABLED: SpinMutex<bool> = SpinMutex::new(false);
+pub static IS_HEAP_ENABLED: AtomicBool = AtomicBool::new(false);
 
 /// Heap Allocator is defined below. Rust no_std environment requires us
 /// to define our own allocator. As such, our goal is to first identify what
@@ -186,6 +188,6 @@ pub fn setup_heap() {
     unsafe { HEAP_ALLOCATOR.lock().init(heap_address, heap_size) };
 
     // Enable heap usage across the system
-    *IS_HEAP_ENABLED.lock() = true;
+    IS_HEAP_ENABLED.store(true, Ordering::Relaxed);
     println!("[KERNEL] Allocated {} Heap Pages", HEAP_PAGES);
 }

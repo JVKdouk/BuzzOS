@@ -2,7 +2,11 @@
 pub enum MemoryError {
     // System used up all available memory
     OutOfMemory,
+
+    // Heap has not yet been allocated
     HeapUnavailable,
+
+    // Process memory tries to invade Kernel memory space (KERNEL_BASE)
     MemorySpaceViolation,
 
     // Physical Top must obey some rules, including not being above Device Space

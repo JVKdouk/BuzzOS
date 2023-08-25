@@ -4,11 +4,11 @@ pub mod interrupts;
 pub mod vm;
 
 pub fn debug_cpu() {
-    let cpu = get_my_cpu().unwrap();
+    let cpu = get_my_cpu();
 
     let apic_id = cpu.apic_id;
-    let number_cli = unsafe { *cpu.number_cli.get() };
-    let enable_interrupt = unsafe { *cpu.enable_interrupt.get() };
+    let number_cli = cpu.get_cli();
+    let enable_interrupt = cpu.get_interrupt_state();
 
     println!("\n--- CPU ({apic_id}) ---");
     println!("Number CLI: {}", number_cli);

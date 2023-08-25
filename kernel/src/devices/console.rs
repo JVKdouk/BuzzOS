@@ -1,4 +1,4 @@
-use core::fmt;
+use core::{fmt, sync::atomic::Ordering};
 use lazy_static::lazy_static;
 
 use crate::{
@@ -9,7 +9,7 @@ use crate::{
     sync::spin_mutex::SpinMutex,
 };
 
-use super::uart::{uart_get_char, uart_put_char};
+use super::uart::{uart_get_char, uart_put_char, IS_UART_ENABLED};
 
 pub struct Console;
 
@@ -26,6 +26,11 @@ impl Console {
     }
 
     pub fn write_string(&self, text: &str) {
+        // Serial safety check
+        if IS_UART_ENABLED.load(Ordering::Relaxed) == false {
+            panic!("[FATAL] UART is not open");
+        }
+
         for c in text.chars() {
             self.write_char(c);
         }

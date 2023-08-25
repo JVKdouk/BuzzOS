@@ -43,8 +43,8 @@ impl DiskLog {
 static DISK_LOG: SpinMutex<DiskLog> = SpinMutex::new(DiskLog::new());
 
 pub fn setup_log() {
-    let mut disk_log = unsafe { DISK_LOG.lock() };
-    let super_block = unsafe { SUPER_BLOCK_CACHE.lock() };
+    let mut disk_log = DISK_LOG.lock();
+    let super_block = SUPER_BLOCK_CACHE.lock();
 
     disk_log.dev = SECONDARY_BLOCK_ID;
     disk_log.size = super_block.number_logs;
@@ -52,7 +52,7 @@ pub fn setup_log() {
 }
 
 pub fn read_log_header() {
-    let mut disk_log = unsafe { DISK_LOG.lock() };
+    let mut disk_log = DISK_LOG.lock();
 
     let in_disk_log_header = read_disk_block(disk_log.dev, disk_log.start);
     let mut header_data_lock = in_disk_log_header.lock();
@@ -65,10 +65,10 @@ pub fn read_log_header() {
 }
 
 pub fn write_log_header() {
-    let mut disk_log = unsafe { DISK_LOG.lock() };
+    let disk_log = DISK_LOG.lock();
     let in_disk_log_header = read_disk_block(disk_log.dev, disk_log.start);
     let mut header_data_lock = in_disk_log_header.lock();
-    let mut header_data = header_data_lock.cast_to::<DiskLogHeader>();
+    let header_data = header_data_lock.cast_to::<DiskLogHeader>();
     header_data[0].count = disk_log.header.count;
 
     for i in 0..disk_log.header.count {
@@ -85,12 +85,12 @@ pub fn write_log_header() {
 pub fn recover_log() {
     read_log_header();
     write_log_blocks();
-    unsafe { DISK_LOG.lock().header.count = 0 };
+    DISK_LOG.lock().header.count = 0;
 }
 
 /// Write log blocks back to disk
 pub fn write_log_blocks() {
-    let disk_log = unsafe { DISK_LOG.lock() };
+    let disk_log = DISK_LOG.lock();
 
     for (i, block_number) in disk_log.header.blocks.iter().enumerate() {
         let log_block = read_disk_block(disk_log.dev, disk_log.start + i as u32 + 1);
@@ -104,7 +104,7 @@ pub fn write_log_blocks() {
 
 /// Moves blocks from cache to log
 pub fn move_cache_to_log() {
-    let disk_log = unsafe { DISK_LOG.lock() };
+    let disk_log = DISK_LOG.lock();
 
     for (i, block_number) in disk_log.header.blocks.iter().enumerate() {
         let to_block = read_disk_block(disk_log.dev, disk_log.start + i as u32 + 1);
@@ -117,7 +117,7 @@ pub fn move_cache_to_log() {
 }
 
 pub fn commit_log() {
-    let mut disk_log = unsafe { DISK_LOG.lock() };
+    let mut disk_log = DISK_LOG.lock();
 
     if disk_log.header.count > 0 {
         move_cache_to_log();
@@ -129,7 +129,7 @@ pub fn commit_log() {
 }
 
 pub fn write_block_log(block: CacheBlock) {
-    let mut disk_log = unsafe { DISK_LOG.lock() };
+    let mut disk_log = DISK_LOG.lock();
 
     if disk_log.header.count >= LOG_BLOCK_SIZE as u32 || disk_log.header.count >= disk_log.size - 1
     {

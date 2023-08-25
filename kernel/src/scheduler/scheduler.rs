@@ -40,9 +40,9 @@ impl Scheduler {
     }
 
     pub fn set_trapframe(&mut self, trapframe: *mut TrapFrame) {
-        let mut process = self.current_process.as_ref().unwrap();
-        let mut process_lock = process.lock();
-        let mut process_trapframe = process_lock.trapframe.unwrap();
+        let process = self.current_process.as_ref().unwrap();
+        let process_lock = process.lock();
+        let process_trapframe = process_lock.trapframe.unwrap();
 
         unsafe {
             *process_trapframe = *trapframe;
@@ -53,15 +53,15 @@ impl Scheduler {
         match self.current_process.is_none() {
             true => None,
             false => {
-                let mut process = self.current_process.as_ref().unwrap();
-                let mut process_lock = process.lock();
+                let process = self.current_process.as_ref().unwrap();
+                let process_lock = process.lock();
                 process_lock.trapframe.clone()
             }
         }
     }
 
     pub unsafe fn resume(&mut self) {
-        let mut process = self.current_process.as_ref().unwrap();
+        let process = self.current_process.as_ref().unwrap();
         let mut process_lock = process.lock();
 
         // Handle current process state
@@ -78,12 +78,11 @@ impl Scheduler {
         PROCESS_LIST.force_unlock();
         process.force_unlock();
 
-        let cpu = get_my_cpu().unwrap();
-        let mut enable_interrupts = unsafe { &mut *cpu.enable_interrupt.get() };
-        let interrupt_status = *enable_interrupts;
+        let cpu = get_my_cpu();
+        let enable_interrupts = cpu.get_interrupt_state();
 
         switch(process_context, self.context);
-        *enable_interrupts = interrupt_status;
+        cpu.set_interrupt_state(enable_interrupts);
     }
 
     pub unsafe fn run_scheduler(&mut self) {
@@ -95,7 +94,7 @@ impl Scheduler {
             let mut process_list = PROCESS_LIST.lock();
 
             // No need to unlock here, lock is dropped automatically
-            let Some(mut process) = process_list.get_next_ready() else {
+            let Some(process) = process_list.get_next_ready() else {
                 PROCESS_LIST.force_unlock();
                 core::hint::spin_loop(); // Hint to the processor that it should save power here
                 continue;
@@ -126,8 +125,8 @@ impl Scheduler {
             // Check for leftover CLI stack. If there is a leftover CLI stack, look for
             // a mutex lock that has been locked but never unlocked. At this point in execution
             // there should be no leftover CLI stack.
-            let cpu = get_my_cpu().unwrap();
-            let number_cli = *cpu.number_cli.get();
+            let cpu = get_my_cpu();
+            let number_cli = cpu.get_cli();
             if number_cli > 0 {
                 panic!(
                     "[ERROR] Leftover CLI stack has been found for CPU {}",

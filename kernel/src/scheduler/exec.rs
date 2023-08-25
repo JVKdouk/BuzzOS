@@ -89,11 +89,13 @@ fn read_program_header(inode: &INode, offset: u32) -> ProgramHeader {
 }
 
 /// Allocate the user stack alongside one guard-page to detect stack overflow
-pub fn prepare_stack(page_dir: &mut Page, address: usize) -> usize {
+pub fn prepare_stack(page_dir: &mut Page, address: usize) -> Result<usize, ELFError> {
     let address = ROUND_UP!(address, PAGE_SIZE);
     let stack_size = ROUND_UP!(DEFAULT_PROGRAM_STACK_SIZE, PAGE_SIZE) / PAGE_SIZE + 1;
 
-    allocate_range(page_dir, address, address + stack_size * PAGE_SIZE);
+    let Ok(_) = allocate_range(page_dir, address, address + stack_size * PAGE_SIZE) else {
+        return Err(ELFError::MemoryAllocationFailure);
+    };
 
     // This is a guard page, used to detect stack overflows, since it cannot be writen by the user
     let page_table_entry = walk_page_dir(page_dir, address, false).unwrap();
@@ -104,7 +106,7 @@ pub fn prepare_stack(page_dir: &mut Page, address: usize) -> usize {
     let page_table_address = unsafe { PTE_ADDRESS!(P2V!(*page_table_entry)) };
     let mut page = Page::new(page_table_address as *mut u8);
 
-    let mut page_data = page.cast_to::<usize>();
+    let page_data = page.cast_to::<usize>();
     let mut esp = address + stack_size * PAGE_SIZE; // Move ESP to top of the stack
 
     page_data[PAGE_SIZE / 4 - 1] = 0xAAAAAAAA;
@@ -112,7 +114,7 @@ pub fn prepare_stack(page_dir: &mut Page, address: usize) -> usize {
     page_data[PAGE_SIZE / 4 - 3] = 0xFFFFFFFF; // Return trap
 
     esp -= 3 * core::mem::size_of::<usize>();
-    esp
+    Ok(esp)
 }
 
 pub fn decode_elf(inode: &INode) -> Result<(Page, ELFHeader, usize), ELFError> {
@@ -130,7 +132,7 @@ pub fn decode_elf(inode: &INode) -> Result<(Page, ELFHeader, usize), ELFError> {
     // Load program headers into memory
     let mut highest_page_address = 0;
     let mut offset = header.program_header_offset as usize;
-    for i in 0..header.number_entries {
+    for _ in 0..header.number_entries {
         let prog_header = read_program_header(inode, offset as u32);
         offset += ELF_PROG_HEADER_SIZE;
 
@@ -157,7 +159,9 @@ pub fn decode_elf(inode: &INode) -> Result<(Page, ELFHeader, usize), ELFError> {
         }
 
         // Allocate all required pages for this section to be loaded into memory
-        allocate_range(&mut page_dir, start_address, end_address);
+        let Ok(_) = allocate_range(&mut page_dir, start_address, end_address) else {
+            return Err(ELFError::MemoryAllocationFailure);
+        };
 
         if end_address > highest_page_address {
             highest_page_address = end_address;
@@ -179,8 +183,7 @@ pub fn decode_elf(inode: &INode) -> Result<(Page, ELFHeader, usize), ELFError> {
 
 pub fn exec(inode: &INode, name: String) {
     let mut scheduler = unsafe { SCHEDULER.lock() };
-    let mut process = scheduler.current_process.as_ref().unwrap();
-    let mut current_page_dir = process.lock().pgdir;
+    let process = scheduler.current_process.as_ref().unwrap();
 
     let (mut new_page_dir, header, highest_page_address) =
         decode_elf(inode).expect("[ERROR] Failed to decode ELF");
@@ -190,7 +193,9 @@ pub fn exec(inode: &INode, name: String) {
     process.lock().name = name;
 
     // Prepare process stack page
-    let esp = prepare_stack(&mut new_page_dir, highest_page_address);
+    let Ok(esp) = prepare_stack(&mut new_page_dir, highest_page_address) else {
+        panic!("[FATAL] Execution Failed");
+    };
 
     unsafe { (*process.lock().trapframe.unwrap()).esp = esp };
     unsafe { (*process.lock().trapframe.unwrap()).eip = header.entry as usize };

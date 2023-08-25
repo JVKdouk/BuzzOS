@@ -36,7 +36,7 @@ pub extern "x86-interrupt" fn page_fault(frame: InterruptStackFrame, _error_code
     let scheduler = unsafe { SCHEDULER.lock() };
     let process = scheduler.current_process.as_ref().unwrap();
 
-    let page_dir_ptr = unsafe { process.lock().pgdir.unwrap() };
+    let page_dir_ptr = process.lock().pgdir.unwrap();
     let mut page_dir = Page::new(page_dir_ptr as *mut u8);
     let page_entry = walk_page_dir(&mut page_dir, address, false);
 

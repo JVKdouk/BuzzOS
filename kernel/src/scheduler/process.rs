@@ -3,7 +3,10 @@ use core::{panic, slice::from_raw_parts_mut};
 use alloc::{string::String, sync::Arc, vec::Vec};
 
 use super::{
-    defs::process::{Context, Process, ProcessList, ProcessState, TrapFrame},
+    defs::process::{
+        Context, Process, ProcessList, ProcessState, TrapFrame, CONTEXT_SIZE, TRAPFRAME_SIZE,
+    },
+    error::ProcessError,
     scheduler::{PROCESS_LIST, SCHEDULER},
     sleep::sleep,
 };
@@ -18,7 +21,7 @@ use crate::{
             TASK_STATE_SEGMENT, USER_CODE_SEGMENT, USER_DATA_SEGMENT,
         },
         error::MemoryError,
-        mem::{mem_move, mem_set},
+        mem::mem_move,
         vm::{allocate_page, map_pages, setup_kernel_page_tables, walk_page_dir},
     },
     sync::{
@@ -114,10 +117,7 @@ impl Process {
     }
 
     pub fn set_trapframe(&mut self, trapframe: TrapFrame) {
-        unsafe {
-            // (*self.trapframe.unwrap()).eax = trapframe.eax;
-            *self.trapframe.unwrap() = trapframe;
-        }
+        unsafe { *self.trapframe.unwrap() = trapframe };
     }
 
     pub fn get_trapframe(&self) -> Option<TrapFrame> {
@@ -129,6 +129,7 @@ impl Process {
 }
 
 extern "C" {
+    // Start of the assembly init program, linked as pure assembly
     static _binary_init_start: usize;
     static _binary_init_size: usize;
 
@@ -138,46 +139,48 @@ extern "C" {
 /// Spawn a process block. Notice the process block has no meaning until it is queued to be run
 /// by the Scheduler. At this point, it is generally prepared to run in the user-space, but no
 /// specific are provided.
-pub unsafe fn spawn_process() -> Result<usize, &'static str> {
+pub unsafe fn spawn_process() -> Result<usize, ProcessError> {
     let mut process_list = PROCESS_LIST.lock();
+
     let mut process = Process::new(process_list.next_pid);
-    process_list.next_pid += 1;
+    let Ok(mut kernel_page) = allocate_page() else {
+        return Err(ProcessError::MemoryAllocationFailure);
+    };
 
-    let trapframe_size = core::mem::size_of::<TrapFrame>() as isize;
-    let context_size = core::mem::size_of::<Context>() as isize;
-    let mut kernel_page = allocate_page().expect("[ERROR] Failed to allocate page");
-    let mut kernel_page_pointer = kernel_page.as_mut_ptr() as *mut usize;
-    let mut esp = kernel_page_pointer.offset(PAGE_SIZE as isize / 4);
+    let kernel_page_pointer = kernel_page.as_mut_ptr();
+    let mut esp = kernel_page_pointer.offset(PAGE_SIZE as isize);
+    kernel_page.zero();
 
-    process.kernel_stack = Some(kernel_page_pointer);
+    process.kernel_stack = Some(kernel_page_pointer as *mut usize);
     process.mem_size = PAGE_SIZE;
     process.state = ProcessState::EMBRYO;
 
     // Setup Trapframe Layout
-    esp = esp.offset(-trapframe_size / 4);
-    mem_set(esp as *mut u8, 0, trapframe_size as usize);
+    esp = esp.sub(TRAPFRAME_SIZE);
     process.trapframe = Some(esp as *mut TrapFrame);
 
     // Setup Context Layout
-    esp = esp.offset(-context_size / 4);
-    mem_set(esp as *mut u8, 0, context_size as usize);
+    esp = esp.sub(CONTEXT_SIZE);
     process.context = Some(esp as *mut Context);
 
     // Create Trap Return
     (*process.context.unwrap()).eip = trap_return as *const () as usize;
 
-    // Return the pid for the newly created process slot
-    match process_list.insert_process(process) {
-        Some(pid) => Ok(pid),
-        None => Err("Could not allocate"),
-    }
+    let Some(pid) = process_list.insert_process(process) else {
+        return Err(ProcessError::SlotAllocationFailure);
+    };
+
+    process_list.next_pid += 1;
+    Ok(pid)
 }
 
+/// We must set the Task State Segment so that switching from CPL 3 to CPL 0 recovers the kernel
+/// segment registers and general state. TSS also allows us to block IO operations in the user level.
 unsafe fn set_user_tss(process: &SpinMutexGuard<Process>) {
-    let cpu = get_my_cpu().unwrap();
-    let mut task_lock = cpu.taskstate.lock();
-    let mut task_state = task_lock.as_mut().unwrap();
+    let cpu = get_my_cpu();
     let gdt = &mut cpu.gdt.lock();
+    let mut task_lock = cpu.taskstate.lock();
+    let task_state = task_lock.as_mut().unwrap();
 
     gdt.set_long_segment(TASK_STATE_SEGMENT, task_state.get_segment() as u128);
     task_state.esp0 = process.kernel_stack.unwrap() as u32 + PAGE_SIZE as u32;
@@ -189,22 +192,19 @@ unsafe fn set_user_tss(process: &SpinMutexGuard<Process>) {
 
 /// Switch to User Virtual Memory, departing from Kernel Virtual Memory. Notice this does
 /// not yet change the DPL or CPL, as this is done at a later step. Since Kernel memory is
-/// entirely mapped for every process, the process can continue executing after the memory is
-/// switched.
+/// entirely mapped for every process, the Kernel can continue executing after the memory is
+/// switched while in DPL 0. Kernel becomes unavailable only when in DPL 3.
 pub unsafe fn switch_user_virtual_memory(process: &Arc<SpinMutex<Process>>) {
     let process_lock = process.lock();
-    let page_dir = process_lock
-        .pgdir
-        .expect("[FATAL] Process has no page directory") as usize;
+    let page_dir = process_lock.pgdir.unwrap() as usize;
 
-    // TODO: Switch to push-cli and pop-cli
     push_cli();
     set_user_tss(&process_lock);
     load_cr3(V2P!(page_dir));
     pop_cli();
 }
 
-/// Migrate from Kernel Virtual Memory to User Virtual Memory. Notice that
+/// Copy user program data into the program's virtual memory
 pub unsafe fn setup_user_virtual_memory(page_dir: &mut Page, address: *const usize, size: usize) {
     if size >= PAGE_SIZE {
         panic!("[FATAL] User Virtual Memory is bigger than one page");
@@ -227,7 +227,7 @@ pub unsafe fn setup_user_virtual_memory(page_dir: &mut Page, address: *const usi
 /// many attributes of the init process, such as trapframe,
 pub unsafe fn spawn_init_process() {
     let process_pid = spawn_process().expect("[FATAL] Failed to start init process");
-    let mut process = PROCESS_LIST.lock().get_pid(process_pid).unwrap();
+    let process = PROCESS_LIST.lock().get_pid(process_pid).unwrap();
     let mut process_lock = process.lock();
 
     let mut kernel_pgdir =
@@ -260,7 +260,11 @@ pub unsafe fn spawn_init_process() {
 
 /// TODO: Use Map Pages instead of allocate range
 /// Perform virtual memory mapping on a given range. Useful to map multiple pages at once.
-pub fn allocate_range(page_dir: &mut Page, mut start_address: usize, end_address: usize) {
+pub fn allocate_range(
+    page_dir: &mut Page,
+    mut start_address: usize,
+    end_address: usize,
+) -> Result<usize, MemoryError> {
     start_address = ROUND_DOWN!(start_address, PAGE_SIZE);
 
     while start_address < end_address {
@@ -274,10 +278,12 @@ pub fn allocate_range(page_dir: &mut Page, mut start_address: usize, end_address
             PAGE_SIZE,
             V2P!(page.as_ptr() as usize),
             PTE_W | PTE_U,
-        );
+        )?;
 
         start_address += PAGE_SIZE;
     }
+
+    Ok(start_address)
 }
 
 pub fn load_process_memory(
@@ -321,7 +327,7 @@ pub fn load_process_memory(
 
 pub unsafe fn resize_process_memory(
     page_dir: &mut Page,
-    mut old_size: usize,
+    old_size: usize,
     new_size: usize,
 ) -> Result<usize, MemoryError> {
     // TODO: Add support to shrinking
@@ -356,7 +362,7 @@ pub unsafe fn resize_process_memory(
 
 pub fn fork() {
     let new_process_pid = unsafe { spawn_process().unwrap() };
-    let mut new_process = unsafe { PROCESS_LIST.lock().get_pid(new_process_pid).unwrap() };
+    let new_process = unsafe { PROCESS_LIST.lock().get_pid(new_process_pid).unwrap() };
     let mut kernel_pgdir = setup_kernel_page_tables().unwrap();
     new_process.lock().pgdir = Some(kernel_pgdir.as_mut_ptr() as *mut usize);
 
@@ -399,7 +405,7 @@ pub unsafe fn copy_process_virtual_memory(src_page_dir: &mut Page, dst_page_dir:
         }
 
         // Allocate page directory entry
-        let mut new_page_dir = allocate_page().expect("[ERROR] Failed to allocate page");
+        let new_page_dir = allocate_page().expect("[ERROR] Failed to allocate page");
         let new_page_dir_address = V2P!(new_page_dir.as_ptr() as usize);
         dst_page_dir_data[i] = new_page_dir_address | src_page_dir_flags;
 
@@ -420,7 +426,7 @@ pub unsafe fn copy_process_virtual_memory(src_page_dir: &mut Page, dst_page_dir:
 
             let src_page_address = PTE_ADDRESS!(src_page_table_data[j]);
             let src_page_flags = PTE_FLAGS!(src_page_table_data[j]);
-            let mut new_page = allocate_page().expect("[ERROR] Failed to allocate page");
+            let new_page = allocate_page().expect("[ERROR] Failed to allocate page");
             let new_page_address = V2P!(new_page.as_ptr() as usize);
             dst_page_table_data[j] = new_page_address | src_page_flags;
 
@@ -436,7 +442,7 @@ pub unsafe fn copy_process_virtual_memory(src_page_dir: &mut Page, dst_page_dir:
 pub fn wait() {
     let scheduler = unsafe { SCHEDULER.lock() };
     let process_list = unsafe { PROCESS_LIST.lock() };
-    let parent = unsafe { scheduler.current_process.as_ref().unwrap() };
+    let parent = scheduler.current_process.as_ref().unwrap();
 
     loop {
         let mut has_children = false;

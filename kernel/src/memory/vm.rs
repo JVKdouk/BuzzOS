@@ -1,4 +1,4 @@
-use core::{panic, slice::SliceIndex};
+use core::{panic, sync::atomic::Ordering};
 
 use lazy_static::lazy_static;
 
@@ -41,7 +41,7 @@ lazy_static! {
         MemoryLayoutEntry {
             virt: unsafe { &KERNEL_DATA as *const u8 as *const usize },
             phys_start: unsafe { V2P!(&KERNEL_DATA as *const u8 as usize) },
-            phys_end: unsafe { *PHYSICAL_TOP.lock() },
+            phys_end: PHYSICAL_TOP.load(Ordering::Relaxed),
             perm: PTE_W,
         },
         // Other Devices
@@ -61,7 +61,7 @@ pub static FREE_PAGE_LIST: SpinMutex<HeapLinkedList<usize>> = SpinMutex::new(Hea
 /// are no pages in the free list, then allocates from the static memory region. If no
 /// pages are avaialable, raise an exception.
 pub fn allocate_page<'a>() -> Result<Page<'a>, MemoryError> {
-    if *IS_HEAP_ENABLED.lock() {
+    if IS_HEAP_ENABLED.load(Ordering::Relaxed) {
         match FREE_PAGE_LIST.lock().pop() {
             Some(address) => return Ok(Page::new(address as *mut u8)),
             None => (),
@@ -94,10 +94,10 @@ pub fn deallocate_page_dir(page_dir: &mut Page) {
 }
 
 /// Add pages to the Free List. The Free List can only be used if Heap is enabled.
-pub fn deallocate_page(mut page_address: usize) {
+pub fn deallocate_page(page_address: usize) {
     assert!(page_address % PAGE_SIZE == 0);
 
-    if *IS_HEAP_ENABLED.lock() == false {
+    if IS_HEAP_ENABLED.load(Ordering::Relaxed) == false {
         panic!("[ERROR] Cannot dealocate without heap");
     }
 
@@ -154,7 +154,7 @@ pub fn map_pages(
     mut physical_address: usize,
     perm: usize,
 ) -> Result<*mut u8, MemoryError> {
-    assert!(size >= 0);
+    assert!(size > 0);
 
     let start_address = ROUND_DOWN!(virtual_address, 4096) as *mut u8;
     let end_address = ROUND_DOWN!(virtual_address.wrapping_add(size - 1), 4096) as *mut u8;
@@ -190,7 +190,7 @@ pub fn setup_kernel_page_tables<'a>() -> Result<Page<'a>, MemoryError> {
     page_dir.zero();
 
     // Physical top cannot be above the device space
-    let physical_top = unsafe { *PHYSICAL_TOP.lock() };
+    let physical_top = PHYSICAL_TOP.load(Ordering::Relaxed);
     if P2V!(physical_top) > DEVICE_SPACE {
         return Err(MemoryError::InvalidPhysicalTop(physical_top as u32));
     }
@@ -214,7 +214,7 @@ pub fn setup_kernel_page_tables<'a>() -> Result<Page<'a>, MemoryError> {
 /// Here, we need to map the Kernel's memory layout to the one defined in KERNEL_MEMORY_LAYOUT,
 /// ensuring access to the entirety of the physical space.
 pub fn setup_vm() {
-    let mut page_dir = setup_kernel_page_tables().expect("[ERR] Failed to Setup Virtual Memory");
+    let page_dir = setup_kernel_page_tables().expect("[ERR] Failed to Setup Virtual Memory");
     let page_dir_ptr = page_dir.as_ptr();
 
     // Switch to new page directory

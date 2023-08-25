@@ -6,6 +6,9 @@
 #![feature(pointer_byte_offsets)]
 #![feature(ptr_metadata)]
 #![feature(slice_index_methods)]
+#![feature(custom_test_frameworks)]
+#![test_runner(crate::run_tests)]
+#![reexport_test_harness_main = "test_main"]
 #[macro_use]
 
 pub mod devices;
@@ -63,8 +66,6 @@ pub unsafe extern "C" fn _start() -> ! {
     scheduler::process::spawn_init_process();
     scheduler::scheduler::setup_scheduler();
 
-    loop {}
-
     // Should never proceeed
     panic!("[FATAL] Returned from Scheduler");
 }
@@ -80,4 +81,12 @@ fn panic(_info: &PanicInfo) -> ! {
 #[alloc_error_handler]
 fn alloc_panic(layout: alloc::alloc::Layout) -> ! {
     panic!("allocation error: {:?}", layout)
+}
+
+#[cfg(test)]
+fn run_tests(tests: &[&dyn Fn()]) {
+    println!("Running {} tests", tests.len());
+    for test in tests {
+        test();
+    }
 }

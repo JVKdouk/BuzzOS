@@ -11,8 +11,10 @@ use std::{
     mem::size_of,
     os::unix::prelude::FileExt,
     path::Path,
-    slice::from_raw_parts,
-    sync::{Mutex, MutexGuard},
+    sync::{
+        atomic::{AtomicU32, Ordering},
+        Mutex,
+    },
 };
 
 mod defs;
@@ -27,7 +29,7 @@ lazy_static! {
     };
 }
 
-static NEXT_FREE_DATA_BLOCK: Mutex<u32> = Mutex::new(NUMBER_META_BLOCKS);
+static NEXT_FREE_DATA_BLOCK: AtomicU32 = AtomicU32::new(NUMBER_META_BLOCKS);
 
 macro_rules! inode_block {
     ($number:expr) => {
@@ -88,11 +90,7 @@ fn mem_move(src: *const u8, dst: *mut u8, length: u32) {
     }
 }
 
-fn get_direct_block(
-    inode: &mut INode,
-    block_number: u32,
-    next_free_data_block: &mut MutexGuard<'_, u32>,
-) -> Option<u32> {
+fn get_direct_block(inode: &mut INode, block_number: u32) -> Option<u32> {
     // Requested block is indirect
     if block_number >= DIRECT_DATA_ADDRESS_SIZE as u32 {
         return None;
@@ -102,8 +100,8 @@ fn get_direct_block(
 
     // Block has not been allocated yet
     if current_block_value == 0 {
-        inode.data[block_number as usize] = **next_free_data_block;
-        **next_free_data_block += 1;
+        inode.data[block_number as usize] = NEXT_FREE_DATA_BLOCK.load(Ordering::Relaxed);
+        NEXT_FREE_DATA_BLOCK.fetch_add(1, Ordering::Relaxed);
         return Some(inode.data[block_number as usize]);
     }
 
@@ -111,11 +109,7 @@ fn get_direct_block(
     Some(current_block_value)
 }
 
-fn get_indirect_block(
-    inode: &mut INode,
-    block_number: u32,
-    next_free_data_block: &mut MutexGuard<'_, u32>,
-) -> Option<u32> {
+fn get_indirect_block(inode: &mut INode, block_number: u32) -> Option<u32> {
     // Requested block is direct
     if block_number < DIRECT_DATA_ADDRESS_SIZE as u32 {
         return None;
@@ -125,8 +119,8 @@ fn get_indirect_block(
 
     // Block has not been allocated yet
     if current_indirect_value == 0 {
-        inode.data[DIRECT_DATA_ADDRESS_SIZE] = **next_free_data_block;
-        **next_free_data_block += 1;
+        inode.data[DIRECT_DATA_ADDRESS_SIZE] = NEXT_FREE_DATA_BLOCK.load(Ordering::Relaxed);
+        NEXT_FREE_DATA_BLOCK.fetch_add(1, Ordering::Relaxed);
         current_indirect_value = inode.data[DIRECT_DATA_ADDRESS_SIZE];
     }
 
@@ -136,8 +130,12 @@ fn get_indirect_block(
 
     // Allocate new block in the indirect data block
     if indirect_block_data[indirect_block_index] == 0 {
-        indirect_block_data[indirect_block_index..(indirect_block_index + 4)]
-            .copy_from_slice((**next_free_data_block).to_le_bytes().as_ref());
+        indirect_block_data[indirect_block_index..(indirect_block_index + 4)].copy_from_slice(
+            NEXT_FREE_DATA_BLOCK
+                .load(Ordering::Relaxed)
+                .to_le_bytes()
+                .as_ref(),
+        );
 
         // Save indirect block
         write_sector(
@@ -145,9 +143,9 @@ fn get_indirect_block(
             indirect_block_data.to_vec(),
         );
 
-        **next_free_data_block += 1;
+        NEXT_FREE_DATA_BLOCK.fetch_add(1, Ordering::Relaxed);
 
-        return Some(**next_free_data_block - 1);
+        return Some(NEXT_FREE_DATA_BLOCK.load(Ordering::Relaxed) - 1);
     }
 
     let indirect_block = &indirect_block_data[indirect_block_index..(indirect_block_index + 4)];
@@ -155,13 +153,9 @@ fn get_indirect_block(
     Some(indirect_block)
 }
 
-fn get_inode_data_block(
-    inode: &mut INode,
-    block_number: u32,
-    next_free_data_block: &mut MutexGuard<'_, u32>,
-) -> u32 {
-    let Some(block) = get_direct_block(inode, block_number, next_free_data_block) else {
-        return get_indirect_block(inode, block_number, next_free_data_block).unwrap()
+fn get_inode_data_block(inode: &mut INode, block_number: u32) -> u32 {
+    let Some(block) = get_direct_block(inode, block_number) else {
+        return get_indirect_block(inode, block_number).unwrap()
     };
 
     return block;
@@ -174,13 +168,11 @@ fn append_inode(inode_number: u32, mut data: *const u8, mut length: u32) {
     let mut inode = read_inode(inode_number);
     let mut size = inode.size;
     let mut block_index = size / BLOCK_SIZE; // Block address we will be writing to
-    let mut next_free_data_block = NEXT_FREE_DATA_BLOCK.lock().unwrap();
 
     while length > 0 {
         assert!(block_index < MAX_FILE_BLOCK);
 
-        let data_block_number =
-            get_inode_data_block(&mut inode, block_index, &mut next_free_data_block);
+        let data_block_number = get_inode_data_block(&mut inode, block_index);
 
         // Write data block to allocated disk block and move to the next BLOCK_SIZE bytes
         let next_block_size = std::cmp::min(length, (block_index + 1) * BLOCK_SIZE - size);
@@ -346,7 +338,7 @@ fn main() {
 
     write_user_files(&args[2], &mut inode_counter, root);
 
-    allocate_bitmap(*NEXT_FREE_DATA_BLOCK.lock().unwrap());
+    allocate_bitmap(NEXT_FREE_DATA_BLOCK.load(Ordering::Relaxed));
 }
 
 impl DirectoryEntry {

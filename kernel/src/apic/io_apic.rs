@@ -29,13 +29,13 @@ pub fn check_apic() {
 }
 
 fn io_apic_write(register: usize, data: usize) {
-    let mut io_apic = unsafe { IO_APIC.lock().unwrap().as_mut().unwrap() };
+    let io_apic = unsafe { IO_APIC.lock().unwrap().as_mut().unwrap() };
     io_apic.register = register;
     io_apic.data = data;
 }
 
 pub fn io_apic_read(register: usize) -> usize {
-    let mut io_apic = unsafe { IO_APIC.lock().unwrap().as_mut().unwrap() };
+    let io_apic = unsafe { IO_APIC.lock().unwrap().as_mut().unwrap() };
     io_apic.register = register;
     io_apic.data
 }

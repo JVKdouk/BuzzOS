@@ -1,3 +1,5 @@
+use core::sync::atomic::Ordering;
+
 use crate::x86::helpers::{outb, sti};
 
 use self::{
@@ -20,7 +22,7 @@ pub fn setup_apic() {
 }
 
 pub fn conclude() {
-    unsafe { IS_CPU_MAPPED = true };
+    IS_CPU_MAPPED.store(true, Ordering::Relaxed);
     sti();
 }
 

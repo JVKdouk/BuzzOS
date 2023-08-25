@@ -83,6 +83,9 @@ pub mod process {
         pub next_to_visit: usize,
         pub next_pid: usize,
     }
+
+    pub const TRAPFRAME_SIZE: usize = core::mem::size_of::<TrapFrame>() as usize;
+    pub const CONTEXT_SIZE: usize = core::mem::size_of::<Context>() as usize;
 }
 
 pub mod scheduler {
