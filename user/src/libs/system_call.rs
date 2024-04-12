@@ -9,6 +9,8 @@ enum SystemCallTable {
     Exec = 5,
     Fork = 6,
     Wait = 7,
+    Print = 8,
+    Sbrk = 9,
 }
 
 struct SystemCall {
@@ -84,4 +86,17 @@ pub extern "C" fn fork() -> usize {
 
 pub extern "C" fn wait() {
     SystemCall::new(SystemCallTable::Wait as usize).call();
+}
+
+pub fn print_message(message: &str) {
+    SystemCall::new(SystemCallTable::Print as usize)
+        .arg0(message.as_ptr() as usize)
+        .arg1(message.len())
+        .call();
+}
+
+pub fn sbrk(amount: usize) -> isize {
+    SystemCall::new(SystemCallTable::Sbrk as usize)
+        .arg0(amount)
+        .call() as isize
 }

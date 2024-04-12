@@ -7,10 +7,6 @@ use core::ops::{Deref, DerefMut, Drop};
 use core::option::Option::{self, None, Some};
 use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
-use crate::apic::mp::{get_my_cpu, IS_CPU_MAPPED};
-
-use super::cpu_cli::{pop_cli, push_cli};
-
 pub struct SpinMutex<T: ?Sized> {
     lock: AtomicBool,
     cpu: AtomicU8,
@@ -44,43 +40,16 @@ impl<T> SpinMutex<T> {
     }
 }
 
-fn get_current_cpu_id() -> u8 {
-    // Check if we already have the lock
-    if IS_CPU_MAPPED.load(Ordering::Relaxed) {
-        let cpu = get_my_cpu();
-        return cpu.apic_id;
-    }
-
-    // Other CPUs have not yet been mapped
-    return 0;
-}
-
 impl<T: ?Sized> SpinMutex<T> {
     fn obtain_lock(&self) {
-        let lock_cpu = self.cpu.load(Ordering::Relaxed);
-        let current_cpu = get_current_cpu_id();
-
-        // If CPU already has the lock, pop the CLI stack
-        if self.lock.load(Ordering::Relaxed) == true && lock_cpu == current_cpu {
-            pop_cli();
-            return;
-        }
-
-        // Keeps trying to update the value (until the value returned is false)
         while self.lock.compare_and_swap(false, true, Ordering::Acquire) != false {
-            // If the update was successful, load should return true
             while self.lock.load(Ordering::Relaxed) {
-                // Once this is the case, relax the CPU
                 cpu_relax();
             }
         }
-
-        // Update current CPU that is holding the lock
-        self.cpu.store(current_cpu, Ordering::Relaxed);
     }
 
     pub fn lock(&self) -> SpinMutexGuard<T> {
-        push_cli();
         self.obtain_lock();
         SpinMutexGuard {
             lock: &self.lock,
@@ -90,7 +59,6 @@ impl<T: ?Sized> SpinMutex<T> {
 
     pub unsafe fn force_unlock(&self) {
         self.lock.store(false, Ordering::Release);
-        pop_cli();
     }
 
     pub fn try_lock(&self) -> Option<SpinMutexGuard<T>> {
@@ -137,9 +105,6 @@ impl<'a, T: ?Sized> DerefMut for SpinMutexGuard<'a, T> {
 
 impl<'a, T: ?Sized> Drop for SpinMutexGuard<'a, T> {
     fn drop(&mut self) {
-        if self.lock.load(Ordering::Relaxed) == true {
-            self.lock.store(false, Ordering::Release);
-            pop_cli();
-        }
+        self.lock.store(false, Ordering::Release);
     }
 }

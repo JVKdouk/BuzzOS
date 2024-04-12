@@ -119,7 +119,7 @@ impl LinkedListAllocator {
 
         let excess_size = node.end_address() - end;
 
-        // The allocation procedure splits the region into a allocated region (of "size") and
+        // The allocation procedure splits the region into an allocated region (of "size") and
         // a free region (of node.end - node.start - size). If the newly created free region
         // cannot contain Node information, then it cannot be tracked anymore by our allocator.
         // This would generate an unrecoverable memory leak over time.

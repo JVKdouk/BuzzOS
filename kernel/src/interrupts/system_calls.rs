@@ -9,7 +9,7 @@ use crate::{
     scheduler::{
         defs::process::{Process, ProcessState, TrapFrame},
         exec::exec,
-        process::{fork, wait},
+        process::{fork, resize_current_process_memory, wait},
         scheduler::SCHEDULER,
         sleep::wakeup,
     },
@@ -24,7 +24,7 @@ fn panic_undefined_syscall() {
 
 /// Every System Call passes through this handler. The trapframe is passed to facilitate loading
 /// the ABI registers and getting the system call number in eax.
-pub fn handle_system_call(trapframe: &mut TrapFrame) {
+pub fn handle_system_call(trapframe: &mut TrapFrame) -> Option<usize> {
     unsafe {
         // Update trapframe, which contains all registers of the process execution context
         SCHEDULER.lock().set_trapframe(trapframe);
@@ -35,22 +35,52 @@ pub fn handle_system_call(trapframe: &mut TrapFrame) {
     let arg1 = trapframe.edx;
     let arg2 = trapframe.ecx;
 
-    match system_call_number {
-        SystemCall::PRINT_TRAP_FRAME => print_trapframe(),
-        SystemCall::EXIT => exit(),
-        SystemCall::YIELD => _yield(),
-        SystemCall::SETUP_FS => setup_file_system(),
+    let output: Option<usize> = match system_call_number {
+        SystemCall::PRINT_TRAP_FRAME => {
+            print_trapframe();
+            None
+        }
+        SystemCall::EXIT => {
+            exit();
+            None
+        }
+        SystemCall::YIELD => {
+            _yield();
+            None
+        }
+        SystemCall::SETUP_FS => {
+            setup_file_system();
+            None
+        }
         SystemCall::EXEC => {
             let str_slice = unsafe { from_raw_parts(arg0 as *const u8, arg1) };
             let path = core::str::from_utf8(str_slice).unwrap();
-            let inode = find_inode_by_path(path.to_string()).unwrap();
-            let name = get_path_filename(path.to_string());
-            exec(&inode, name);
+            let inode = find_inode_by_path(path).unwrap();
+            exec(&inode, path);
+            None
         }
-        SystemCall::FORK => fork(),
-        SystemCall::WAIT => wait(),
-        _ => panic_undefined_syscall(),
+        SystemCall::FORK => {
+            fork();
+            None
+        }
+        SystemCall::WAIT => {
+            wait();
+            None
+        }
+        SystemCall::PRINT => {
+            let str_slice = unsafe { from_raw_parts(arg0 as *const u8, arg1) };
+            let message = core::str::from_utf8(str_slice).unwrap();
+            println!("{}", message);
+            None
+        }
+        SystemCall::SBRK => Some(resize_current_process_memory(arg0).unwrap()),
+        _ => {
+            panic_undefined_syscall();
+            None
+        }
     };
+
+    output
 }
 
 pub fn print_trapframe() {

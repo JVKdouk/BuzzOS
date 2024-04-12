@@ -1,7 +1,8 @@
 use alloc::string::String;
 
 use crate::{
-    filesystem::fs::{read_inode_data, INode},
+    debug::process::debug_elf,
+    filesystem::fs::{get_path_filename, read_inode_data, INode},
     memory::{
         defs::{Page, KERNEL_BASE, PAGE_SIZE, PTE_U, PTE_W},
         vm::{setup_kernel_page_tables, walk_page_dir},
@@ -12,15 +13,16 @@ use crate::{
 
 use super::{error::ELFError, process::load_process_memory, scheduler::SCHEDULER};
 
-const ELF_MAGIC: u32 = 0x464C457F;
-const ELF_HEADER_SIZE: usize = core::mem::size_of::<ELFHeader>();
-const ELF_PROG_HEADER_SIZE: usize = core::mem::size_of::<ProgramHeader>();
+pub const ELF_MAGIC: u32 = 0x464C457F;
+pub const ELF_HEADER_SIZE: usize = core::mem::size_of::<ELFHeader>();
+pub const ELF_PROG_HEADER_SIZE: usize = core::mem::size_of::<ProgramHeader>();
 
 const DEFAULT_PROGRAM_STACK_SIZE: usize = 8192; // Stack size in bytes
+const DEFAULT_PROGRAM_HEAP_SIZE: usize = 4096; // Heap size in bytes
 
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum ProgramHeaderType {
+pub enum ProgramHeaderType {
     NULL = 0,
     LOAD = 1,
     DYNAMIC = 2,
@@ -29,11 +31,12 @@ enum ProgramHeaderType {
     SHLIB = 5,
     HEADER = 6,
     THREAD = 7,
+    OTHER,
 }
 
 #[repr(u16)]
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum ELFHeaderType {
+pub enum ELFHeaderType {
     NULL = 0,
     RELOCATABLE = 1,
     EXECUTABLE = 2,
@@ -44,34 +47,34 @@ enum ELFHeaderType {
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct ELFHeader {
-    magic: u32,
-    specs: [u8; 12],
-    _type: ELFHeaderType,
-    machine: u16,
-    version: u32,
-    entry: u32, // Program Entry Point
-    program_header_offset: u32,
-    section_header_offset: u32,
-    flags: u32,
-    header_size: u16,
-    header_table_size: u16,
-    number_entries: u16, // Number of entries in the ELF
-    section_entry_size: u16,
-    section_header_number: u16,
-    section_names_index: u16,
+    pub magic: u32,
+    pub specs: [u8; 12],
+    pub _type: ELFHeaderType,
+    pub machine: u16,
+    pub version: u32,
+    pub entry: u32, // Program Entry Point
+    pub program_header_offset: u32,
+    pub section_header_offset: u32,
+    pub flags: u32,
+    pub header_size: u16,
+    pub header_table_size: u16,
+    pub number_entries: u16, // Number of entries in the ELF
+    pub section_entry_size: u16,
+    pub section_header_number: u16,
+    pub section_names_index: u16,
 }
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
-struct ProgramHeader {
-    _type: ProgramHeaderType,
-    offset: u32,
-    virtual_address: u32,
-    physical_address: u32,
-    file_size: u32,
-    memory_size: u32,
-    flags: u32,
-    align: u32,
+pub struct ProgramHeader {
+    pub _type: ProgramHeaderType,
+    pub offset: u32,
+    pub virtual_address: u32,
+    pub physical_address: u32,
+    pub file_size: u32,
+    pub memory_size: u32,
+    pub flags: u32,
+    pub align: u32,
 }
 
 fn get_elf_header(inode: &INode) -> ELFHeader {
@@ -89,11 +92,11 @@ fn read_program_header(inode: &INode, offset: u32) -> ProgramHeader {
 }
 
 /// Allocate the user stack alongside one guard-page to detect stack overflow
-pub fn prepare_stack(page_dir: &mut Page, address: usize) -> Result<usize, ELFError> {
+pub fn prepare_stack(page_dir: &mut Page, address: usize) -> Result<(usize, usize), ELFError> {
     let address = ROUND_UP!(address, PAGE_SIZE);
     let stack_size = ROUND_UP!(DEFAULT_PROGRAM_STACK_SIZE, PAGE_SIZE) / PAGE_SIZE + 1;
 
-    let Ok(_) = allocate_range(page_dir, address, address + stack_size * PAGE_SIZE) else {
+    let Ok(end_address) = allocate_range(page_dir, address, address + stack_size * PAGE_SIZE) else {
         return Err(ELFError::MemoryAllocationFailure);
     };
 
@@ -114,7 +117,7 @@ pub fn prepare_stack(page_dir: &mut Page, address: usize) -> Result<usize, ELFEr
     page_data[PAGE_SIZE / 4 - 3] = 0xFFFFFFFF; // Return trap
 
     esp -= 3 * core::mem::size_of::<usize>();
-    Ok(esp)
+    Ok((esp, end_address))
 }
 
 pub fn decode_elf(inode: &INode) -> Result<(Page, ELFHeader, usize), ELFError> {
@@ -181,7 +184,7 @@ pub fn decode_elf(inode: &INode) -> Result<(Page, ELFHeader, usize), ELFError> {
     Ok((page_dir, header, highest_page_address))
 }
 
-pub fn exec(inode: &INode, name: String) {
+pub fn exec(inode: &INode, path: &str) {
     let mut scheduler = unsafe { SCHEDULER.lock() };
     let process = scheduler.current_process.as_ref().unwrap();
 
@@ -190,12 +193,14 @@ pub fn exec(inode: &INode, name: String) {
 
     // Update process's page directory
     process.lock().pgdir = Some(new_page_dir.as_mut_ptr() as *mut usize);
-    process.lock().name = name;
+    process.lock().name = get_path_filename(path);
 
     // Prepare process stack page
-    let Ok(esp) = prepare_stack(&mut new_page_dir, highest_page_address) else {
+    let Ok((esp, highest_page_address)) = prepare_stack(&mut new_page_dir, highest_page_address) else {
         panic!("[FATAL] Execution Failed");
     };
+
+    process.lock().mem_size = highest_page_address;
 
     unsafe { (*process.lock().trapframe.unwrap()).esp = esp };
     unsafe { (*process.lock().trapframe.unwrap()).eip = header.entry as usize };

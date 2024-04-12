@@ -80,7 +80,7 @@ pub unsafe fn compare_virtual_memory(first_pg_dir: &mut Page, second_pg_dir: &mu
 pub fn vm_corruption_checker() {
     cli();
     let cr3 = P2V!(read_cr3()) as *const u32;
-    println!("Memory Check on Page Directory 0x{:X}", cr3 as u32);
+    println!("[DEBUG] Memory Check on Page Directory 0x{:X}", cr3 as u32);
 
     for pg_dir_index in 511..1024 {
         let page_dir_entry = unsafe { *cr3.add(pg_dir_index) };
@@ -111,7 +111,5 @@ pub fn vm_corruption_checker() {
         }
     }
 
-    println!("[KERNEL] Memory Check Completed. No Corruption Found");
-
-    hlt();
+    println!("[DEBUG] Memory Check Completed. No Corruption Found");
 }

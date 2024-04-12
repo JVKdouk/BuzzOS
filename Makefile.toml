@@ -53,7 +53,7 @@ dependencies = ["clean"]
 workspace = false
 script = [
     "cd user",
-    "cargo build",
+    "RUSTFLAGS=-g cargo build --release --target x86-target.json",
     "mkdir ../build/user",
     "rm target/bin/*.rlib",
     "cp target/bin/* ../build/user",

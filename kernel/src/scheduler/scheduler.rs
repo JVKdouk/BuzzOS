@@ -100,7 +100,7 @@ impl Scheduler {
                 continue;
             };
 
-            println!("RUNNING {}", process.lock().name);
+            // println!("RUNNING {}", process.lock().name);
 
             let mut process_lock = process.lock();
             let process_context = process_lock.context.expect("[FATAL] No Context");

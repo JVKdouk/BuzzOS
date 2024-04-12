@@ -3,8 +3,11 @@ use core::{panic, slice::from_raw_parts_mut};
 use alloc::{string::String, sync::Arc, vec::Vec};
 
 use super::{
-    defs::process::{
-        Context, Process, ProcessList, ProcessState, TrapFrame, CONTEXT_SIZE, TRAPFRAME_SIZE,
+    defs::{
+        process::{
+            Context, Process, ProcessList, ProcessState, TrapFrame, CONTEXT_SIZE, TRAPFRAME_SIZE,
+        },
+        scheduler,
     },
     error::ProcessError,
     scheduler::{PROCESS_LIST, SCHEDULER},
@@ -13,7 +16,6 @@ use super::{
 
 use crate::{
     apic::mp::get_my_cpu,
-    debug::vm::compare_virtual_memory,
     filesystem::fs::{read_inode_data, INode},
     memory::{
         defs::{
@@ -24,6 +26,7 @@ use crate::{
         mem::mem_move,
         vm::{allocate_page, map_pages, setup_kernel_page_tables, walk_page_dir},
     },
+    println,
     sync::{
         cpu_cli::{pop_cli, push_cli},
         spin_mutex::{SpinMutex, SpinMutexGuard},
@@ -185,7 +188,7 @@ unsafe fn set_user_tss(process: &SpinMutexGuard<Process>) {
     gdt.set_long_segment(TASK_STATE_SEGMENT, task_state.get_segment() as u128);
     task_state.esp0 = process.kernel_stack.unwrap() as u32 + PAGE_SIZE as u32;
     task_state.ss0 = (KERNEL_DATA_SEGMENT << 3) as u16;
-    task_state.iopb = 0xFFFF;
+    // task_state.iopb = 0xFFFF;
 
     ltr((TASK_STATE_SEGMENT as u16) << 3);
 }
@@ -283,15 +286,15 @@ pub fn allocate_range(
         start_address += PAGE_SIZE;
     }
 
-    Ok(start_address)
+    Ok(end_address)
 }
 
 pub fn load_process_memory(
-    page_dir: &mut Page,
-    address: *const u8,
-    inode: &INode,
-    offset: usize,
-    size: usize,
+    page_dir: &mut Page, // Page directory of the process
+    address: *const u8, // Address to which data should be copied to
+    inode: &INode, // Index node from which data will be extracted
+    offset: usize, // Offset from which data should start to be moved
+    size: usize, // Amount of data to load into the process memory
 ) -> Result<(), ()> {
     if offset > PAGE_SIZE {
         panic!("[ERROR] ELF Offset bigger than a full page");
@@ -303,19 +306,21 @@ pub fn load_process_memory(
         // Get page that will be modified
         let page_table_entry = walk_page_dir(page_dir, address as usize + counter, false).unwrap();
         let page_address = unsafe { P2V!(*page_table_entry & !0xFFF) };
+        let mut page = Page::new(page_address as *mut u8);
+        let mut page_slice = page.cast_to::<u8>();
 
         // Align to minimum between what data is left and a full page
         let mut byte_count = PAGE_SIZE;
         if size - counter < PAGE_SIZE {
             byte_count = size - counter;
         }
+        println!("0x{:X} - {}", first_page_offset, byte_count);
 
         // Read program's data
         let inode_data = read_inode_data(inode, (offset + counter) as u32, byte_count as u32);
 
         // Write data into the page
-        let page_data = unsafe { from_raw_parts_mut(page_address as *mut u8, PAGE_SIZE) };
-        page_data[first_page_offset..(first_page_offset + byte_count)]
+        page_slice[first_page_offset..(first_page_offset + byte_count)]
             .copy_from_slice(inode_data.as_slice());
 
         counter += PAGE_SIZE;
@@ -325,22 +330,24 @@ pub fn load_process_memory(
     Ok(())
 }
 
-pub unsafe fn resize_process_memory(
-    page_dir: &mut Page,
-    old_size: usize,
-    new_size: usize,
-) -> Result<usize, MemoryError> {
-    // TODO: Add support to shrinking
-    if new_size < old_size {
-        return Ok(old_size);
+pub fn resize_current_process_memory(amount: usize) -> Result<usize, MemoryError> {
+    let scheduler = unsafe { SCHEDULER.lock() };
+    let mut process = scheduler.current_process.as_ref().unwrap();
+    let current_size = process.lock().mem_size;
+    let page_dir = &mut Page::new(process.lock().pgdir.unwrap() as *mut u8);
+
+    if amount == 0 {
+        return Ok(current_size);
     }
 
-    if new_size > KERNEL_BASE {
+    if current_size + amount > KERNEL_BASE {
         return Err(MemoryError::MemorySpaceViolation);
     }
 
-    let mut lower_boundary = ROUND_UP!(old_size, PAGE_SIZE);
-    while lower_boundary < new_size {
+    println!("RESIZING by {}", amount);
+
+    let mut lower_boundary = ROUND_UP!(current_size, PAGE_SIZE);
+    while lower_boundary < current_size + amount {
         // Allocate new pages to the current process
         let mut page = allocate_page()?;
         page.zero();
@@ -357,7 +364,8 @@ pub unsafe fn resize_process_memory(
         lower_boundary += PAGE_SIZE;
     }
 
-    Ok(new_size)
+    process.lock().mem_size = lower_boundary;
+    Ok(current_size)
 }
 
 pub fn fork() {
@@ -371,7 +379,6 @@ pub fn fork() {
     let mut src_page_dir = Page::new(process.lock().pgdir.unwrap() as *mut u8);
 
     unsafe { copy_process_virtual_memory(&mut src_page_dir, &mut kernel_pgdir) };
-    unsafe { compare_virtual_memory(&mut src_page_dir, &mut kernel_pgdir) };
 
     new_process.lock().mem_size = process.lock().mem_size;
     new_process.lock().parent = Some(Arc::clone(&process));

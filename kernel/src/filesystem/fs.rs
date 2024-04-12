@@ -171,11 +171,11 @@ pub fn read_dir(inode: &INode) -> Option<Vec<DirectoryEntry>> {
     Some(dir_children.to_owned())
 }
 
-pub fn get_path_filename(path: String) -> String {
+pub fn get_path_filename(path: &str) -> String {
     path.split('/').last().unwrap().to_string()
 }
 
-pub fn find_inode_by_path(path: String) -> Option<INode> {
+pub fn find_inode_by_path(path: &str) -> Option<INode> {
     let dirs;
 
     if path.chars().nth(0).unwrap() == '/' {

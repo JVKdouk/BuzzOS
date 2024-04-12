@@ -1,6 +1,7 @@
 use crate::{apic::mp::get_my_cpu, println, scheduler::scheduler::PROCESS_LIST};
 
 pub mod interrupts;
+pub mod process;
 pub mod vm;
 
 pub fn debug_cpu() {

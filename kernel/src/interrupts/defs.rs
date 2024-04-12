@@ -12,6 +12,8 @@ pub mod system_call {
     pub const EXEC: usize = 5;
     pub const FORK: usize = 6;
     pub const WAIT: usize = 7;
+    pub const PRINT: usize = 8;
+    pub const SBRK: usize = 9;
 }
 
 /// Structure of a pointer to a IDT. Must be passed in this format

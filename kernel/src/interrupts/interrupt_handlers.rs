@@ -27,22 +27,29 @@ pub extern "x86-interrupt" fn breakpoint_handler(frame: InterruptStackFrame) {
 pub extern "x86-interrupt" fn page_fault(frame: InterruptStackFrame, _error_code: PageFaultErr) {
     let address = read_cr2();
 
-    // Process hits the return trap. It has finished execution and should be killed.
-    if address == 0xFFFFFFFF {
-        println!("[WARNING] Return Trap");
-        exit();
+    let scheduler = unsafe { SCHEDULER.lock() };
+
+    if scheduler.current_process.is_none() {
+        panic!(
+            "[FATAL] Kernel produced a page fault\nEIP: 0x{:X}\nCR2: 0x{:X}\n",
+            frame.instruction_pointer, address
+        );
     }
 
-    let scheduler = unsafe { SCHEDULER.lock() };
     let process = scheduler.current_process.as_ref().unwrap();
-
     let page_dir_ptr = process.lock().pgdir.unwrap();
     let mut page_dir = Page::new(page_dir_ptr as *mut u8);
     let page_entry = walk_page_dir(&mut page_dir, address, false);
 
+    // Process hits the return trap. It has finished execution and should be killed.
+    if address == 0xFFFFFFFF {
+        println!("[WARNING] Return Trap - {}", process.lock().name);
+        exit();
+    }
+
     // Stack overflow happens when a write is performend on the guard page
     if page_entry.is_ok() && unsafe { *page_entry.unwrap() & PTE_U == 0 } {
-        println!("[WARNING] Stack Overflow");
+        println!("[WARNING] Stack Overflow - {}", process.lock().name);
         unsafe { SCHEDULER.force_unlock() };
         exit();
     }
@@ -56,8 +63,10 @@ pub extern "x86-interrupt" fn page_fault(frame: InterruptStackFrame, _error_code
     }
 
     println!(
-        "[WARNING] Page Fault - eip: 0x{:X} - cr2: 0x{:X}",
-        frame.instruction_pointer, address
+        "\n[WARNING] Page Fault\nProcess Name: {}\nEIP: 0x{:X}\nCR2: 0x{:X}\n",
+        process.lock().name,
+        frame.instruction_pointer,
+        address
     );
 
     exit();
@@ -96,11 +105,13 @@ pub extern "x86-interrupt" fn general_irq_handler(_frame: InterruptStackFrame) {
 }
 
 #[no_mangle]
-extern "C" fn interrupt_manager(trapframe: &mut TrapFrame) {
+extern "C" fn interrupt_manager(trapframe: &mut TrapFrame) -> isize {
     // If Trap Number is 64, then this is a System Call, and not an IRQ
     if trapframe.trap_number == 64 {
-        return handle_system_call(trapframe);
+        let output = handle_system_call(trapframe);
+        return output.unwrap_or(0x0) as isize;
     }
 
     handle_irq(trapframe);
+    0x0
 }

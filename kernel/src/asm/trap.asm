@@ -24,6 +24,9 @@ trap_enter:
     add esp, 4
 
 trap_return:
+    ; Update EAX in the stack with the return value
+    mov [esp + 28], eax
+
     popa
     pop gs
     pop fs

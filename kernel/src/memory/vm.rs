@@ -10,8 +10,12 @@ use super::{
 };
 
 use crate::{
-    println, structures::heap_linked_list::HeapLinkedList, sync::spin_mutex::SpinMutex,
-    x86::helpers::load_cr3, P2V, PAGE_DIR_INDEX, PAGE_TABLE_INDEX, PTE_ADDRESS, ROUND_DOWN, V2P,
+    println,
+    scheduler::{self, scheduler::SCHEDULER},
+    structures::heap_linked_list::HeapLinkedList,
+    sync::spin_mutex::SpinMutex,
+    x86::helpers::load_cr3,
+    P2V, PAGE_DIR_INDEX, PAGE_TABLE_INDEX, PTE_ADDRESS, ROUND_DOWN, V2P,
 };
 
 extern "C" {
